@@ -24,3 +24,5 @@ tay_calendar-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+/priv/credentials*
+/.secrets/
