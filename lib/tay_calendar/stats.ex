@@ -19,12 +19,15 @@ defmodule TayCalendar.Stats do
 
   defp battery_stats(%{
          "stateOfChargeInPercentage" => charge_percent,
+         "chargingMode" => charge_mode,
          "chargingPower" => charge_rate,
-         "remainingERange" => %{"valueInKilometers" => range_km}
+         "remainingERange" => %{"valueInKilometers" => range_km},
+         "remainingChargeTimeUntil100PercentInMinutes" => charge_full_mins
        }) do
     %{
       "battery.charge.percent" => charge_percent,
-      "battery.charge.rate" => charge_rate,
+      "battery.charge.rate" => if(charge_mode == "OFF", do: nil, else: charge_rate),
+      "battery.charge.full.minutes" => charge_full_mins,
       "battery.range.km" => range_km
     }
   end
