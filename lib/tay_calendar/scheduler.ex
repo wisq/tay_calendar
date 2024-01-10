@@ -13,10 +13,9 @@ defmodule TayCalendar.Scheduler do
   # On failure, refresh after one minute
   @error_interval 60_000
 
-  # Accept events that ended up to 5 minutes in the past.
-  # This avoids potential race conditions where we delete 
-  # a timer while it's still relevant.
-  @min_time_margin {-5, :minute}
+  # Accept events that ended up to a day ago.
+  # This allows us to maintain "after" timers for those events.
+  @min_time_margin {-1, :day}
   # Look for events up to one week in advance.
   @max_time_margin {7, :day}
 
@@ -150,9 +149,12 @@ defmodule TayCalendar.Scheduler do
   end
 
   defp update_timers(state, timers) do
+    now = DateTime.utc_now()
+
     timers =
       timers
       |> Enum.sort_by(&PendingTimer.unix_time/1)
+      |> Enum.drop_while(&PendingTimer.past?(&1, now))
       |> Enum.take(5)
 
     TimerManager.push(state.config.timer_manager, timers)

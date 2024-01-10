@@ -185,7 +185,6 @@ defmodule TayCalendar.TimerManager do
 
     wanted
     |> Enum.reduce_while(slots, &put_timer_into_slot/2)
-    |> IO.inspect()
     |> Enum.reject(&(&1.action == :keep))
   end
 

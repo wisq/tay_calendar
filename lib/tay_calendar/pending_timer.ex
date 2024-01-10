@@ -9,6 +9,14 @@ defmodule TayCalendar.PendingTimer do
     time |> DateTime.to_unix()
   end
 
+  def past?(%PendingTimer{time: then}, now \\ DateTime.utc_now()) do
+    case DateTime.compare(then, now) do
+      :lt -> true
+      :eq -> false
+      :gt -> false
+    end
+  end
+
   def is_covered_by?(%PendingTimer{} = pending, %ExistingTimer{} = existing) do
     existing |> ExistingTimer.will_occur_at?(pending.time |> DateTime.to_naive()) &&
       existing.active && existing.climate_enabled
