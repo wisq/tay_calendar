@@ -28,7 +28,7 @@ defmodule TayCalendar.MixProject do
       {:req, "~> 0.4.0"},
       {:timex, "~> 3.7.11"},
       {:nimble_parsec, "~> 1.4.0"},
-      {:porsche_conn_ex, path: "../porsche_conn_ex"},
+      {:porsche_conn_ex, github: "wisq/porsche_conn_ex", tag: "e9342825"},
       {:dogstatsd, "~> 0.0.4"}
     ]
   end
