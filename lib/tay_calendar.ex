@@ -53,7 +53,7 @@ defmodule TayCalendar do
     ]
   end
 
-  defp read_credentials do
+  def read_credentials do
     System.get_env("GOOGLE_AUTH_FILE", priv("credentials.json"))
     |> File.read!()
     |> Jason.decode!()

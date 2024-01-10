@@ -3,6 +3,10 @@ defmodule TayCalendar.Google.API do
     req(goth, params |> Keyword.put(:method, :get))
   end
 
+  def post(goth, params) do
+    req(goth, params |> Keyword.put(:method, :post))
+  end
+
   defp req(goth, params) do
     {:ok, token} = Goth.fetch(goth)
 
@@ -14,4 +18,6 @@ defmodule TayCalendar.Google.API do
 
   defp handle_response({:ok, %{status: 200, body: body}}) when is_map(body) or is_list(body),
     do: {:ok, body}
+
+  defp handle_response({:ok, %{status: 404}}), do: {:error, :not_found}
 end
