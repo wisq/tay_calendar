@@ -30,7 +30,8 @@ defmodule TayCalendar.PendingTimer do
       repeating: false,
       weekdays: nil,
       climate_enabled: true,
-      charging_enabled: false
+      charging_enabled: false,
+      charge_target: 85
     }
   end
 end

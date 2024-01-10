@@ -1,7 +1,16 @@
 defmodule TayCalendar.ExistingTimer do
   alias __MODULE__
 
-  @enforce_keys [:id, :active, :time, :repeating, :weekdays, :climate_enabled, :charging_enabled]
+  @enforce_keys [
+    :id,
+    :active,
+    :time,
+    :repeating,
+    :weekdays,
+    :climate_enabled,
+    :charging_enabled,
+    :charge_target
+  ]
   defstruct(@enforce_keys)
 
   @iso_weekdays ~w{MONDAY TUESDAY WEDNESDAY THURSDAY FRIDAY SATURDAY SUNDAY}
@@ -13,18 +22,20 @@ defmodule TayCalendar.ExistingTimer do
         "active" => active,
         "departureDateTime" => time,
         "frequency" => frequency,
+        "weekDays" => weekdays,
         "chargeOption" => charging_enabled,
         "climatised" => climate_enabled,
-        "weekDays" => weekdays
+        "targetChargeLevel" => charge_target
       }) do
     %ExistingTimer{
       id: id |> String.to_integer(),
       active: active,
       time: time |> Timex.parse!("{ISO:Extended}") |> DateTime.to_naive(),
       repeating: repeating?(frequency),
-      weekdays: to_iso_week_numbers(weekdays),
+      weekdays: to_iso_weekday_numbers(weekdays),
       climate_enabled: climate_enabled,
-      charging_enabled: charging_enabled
+      charging_enabled: charging_enabled,
+      charge_target: charge_target
     }
   end
 
@@ -33,8 +44,9 @@ defmodule TayCalendar.ExistingTimer do
       "timerID" => timer.id |> Integer.to_string(),
       "active" => timer.active,
       "departureDateTime" => timer.time |> Timex.format!("{ISO:Extended:Z}"),
+      "climatised" => timer.climate_enabled,
       "chargeOption" => timer.charging_enabled,
-      "climatised" => timer.climate_enabled
+      "targetChargeLevel" => timer.charge_target
     }
     |> put_api_frequency(timer)
   end
@@ -62,13 +74,19 @@ defmodule TayCalendar.ExistingTimer do
     })
   end
 
-  defp to_iso_week_numbers(nil), do: nil
+  defp to_iso_weekday_numbers(nil), do: nil
 
-  defp to_iso_week_numbers(weekdays_map) do
+  defp to_iso_weekday_numbers(weekdays_map) do
     weekdays_map
     |> Enum.filter(fn {_, v} -> v == true end)
     |> Enum.map(fn {k, _} -> Map.fetch!(@iso_weekdays, k) end)
     |> Enum.sort()
+  end
+
+  defp to_weekday_names(days) do
+    @iso_weekdays
+    |> Enum.filter(fn {_, index} -> index in days end)
+    |> Enum.map(fn {name, _} -> String.capitalize(name) end)
   end
 
   def will_occur_at?(%ExistingTimer{repeating: false, time: ex_time}, %NaiveDateTime{} = at_time) do
@@ -81,5 +99,39 @@ defmodule TayCalendar.ExistingTimer do
       ) do
     NaiveDateTime.to_time(ex_time) == NaiveDateTime.to_time(at_time) &&
       (NaiveDateTime.to_date(at_time) |> Date.day_of_week()) in days
+  end
+
+  def describe(%ExistingTimer{repeating: false} = timer) do
+    {:ok, time} =
+      timer.time
+      |> NaiveDateTime.truncate(:second)
+      |> Timex.format("{ISOdate} {ISOtime}")
+
+    "#{time} (#{describe_features(timer)})"
+  end
+
+  def describe(%ExistingTimer{repeating: true} = timer) do
+    {:ok, time} =
+      timer.time
+      |> NaiveDateTime.truncate(:second)
+      |> Timex.format("{ISOtime}")
+
+    days =
+      case timer.weekdays do
+        [1, 2, 3, 4, 5, 6, 7] -> "every day"
+        [1, 2, 3, 4, 5] -> "weekdays"
+        days -> to_weekday_names(days) |> Enum.join("/")
+      end
+
+    "#{days} at #{time} (#{describe_features(timer)})"
+  end
+
+  defp describe_features(%ExistingTimer{} = timer) do
+    [
+      if(timer.charging_enabled, do: "charge to #{timer.charge_target}%", else: nil),
+      if(timer.climate_enabled, do: "climatise", else: nil)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(", ")
   end
 end

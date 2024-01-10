@@ -81,6 +81,9 @@ defmodule TayCalendar.TimerManager do
     end
 
     def sort_key(%Slot{priority: prio, id: id}), do: {-prio, id}
+
+    def describe_timer(%Slot{timer: nil}), do: "(nil)"
+    def describe_timer(%Slot{timer: timer}), do: ExistingTimer.describe(timer)
   end
 
   def start_link(opts) do
@@ -99,14 +102,13 @@ defmodule TayCalendar.TimerManager do
 
   @impl true
   def handle_cast({:push, timers}, state) when is_list(timers) do
-    Logger.info("Received #{Enum.count(timers)} timers.")
     {:noreply, %State{state | to_plan: timers}, {:continue, :plan}}
   end
 
   @impl true
   def handle_continue(:plan, state) do
     with {:ok, existing} <- existing_timers(state.config) do
-      Logger.info("Vehicle has #{Enum.count(existing)} active timers.")
+      Logger.info("Vehicle timers: " <> describe_existing_timers(existing))
       to_update = plan_update(state.to_plan, existing)
       {:noreply, %State{state | to_plan: nil, to_update: to_update}, {:continue, :update}}
     else
@@ -163,6 +165,16 @@ defmodule TayCalendar.TimerManager do
     end
   end
 
+  defp describe_existing_timers([]), do: "(no timers)"
+
+  defp describe_existing_timers(timers) do
+    timers
+    |> Enum.map(fn t ->
+      "\n  - ##{t.id}: #{ExistingTimer.describe(t)}"
+    end)
+    |> Enum.join()
+  end
+
   defp plan_update(wanted, existing) do
     priorities =
       existing
@@ -210,7 +222,7 @@ defmodule TayCalendar.TimerManager do
   end
 
   defp update_slot(%Slot{action: :replace} = slot, config) do
-    Logger.info("Replacing slot ##{slot.id} ...")
+    Logger.info("Replacing ##{slot.id} with #{Slot.describe_timer(slot)} ...")
     api_timer = slot.timer |> ExistingTimer.to_api()
 
     case Porsche.put_timer(config.session, config.vin, config.model, api_timer) do
@@ -225,7 +237,7 @@ defmodule TayCalendar.TimerManager do
   end
 
   defp update_slot(%Slot{action: :delete} = slot, config) do
-    Logger.info("Deleting slot ##{slot.id} ...")
+    Logger.info("Deleting slot ##{slot.id}, was #{Slot.describe_timer(slot)} ...")
 
     case Porsche.delete_timer(config.session, config.vin, config.model, slot.id) do
       {:ok, _} ->
