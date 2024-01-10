@@ -17,8 +17,16 @@ defmodule TayCalendar.Stats do
     |> record_stats()
   end
 
-  defp battery_stats(%{"stateOfChargeInPercentage" => charge_percent}) do
-    %{"battery.charge.percent" => charge_percent}
+  defp battery_stats(%{
+         "stateOfChargeInPercentage" => charge_percent,
+         "chargingPower" => charge_rate,
+         "remainingERange" => %{"valueInKilometers" => range_km}
+       }) do
+    %{
+      "battery.charge.percent" => charge_percent,
+      "battery.charge.rate" => charge_rate,
+      "battery.range.km" => range_km
+    }
   end
 
   defp climate_stats(%{"remainingClimatisationTime" => mins}) do
@@ -28,6 +36,7 @@ defmodule TayCalendar.Stats do
   defp record_stats(map) do
     DogStatsd.batch(__MODULE__, fn batch ->
       map
+      |> Enum.reject(fn {_, value} -> is_nil(value) end)
       |> Enum.each(fn {key, value} ->
         batch.gauge(__MODULE__, "#{@prefix}.#{key}", value)
       end)
