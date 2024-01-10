@@ -10,6 +10,7 @@ defmodule TayCalendar.TimerManager do
   alias PorscheConnEx.Client, as: Porsche
   alias TayCalendar.ExistingTimer
   alias TayCalendar.PendingTimer
+  alias TayCalendar.Stats
 
   defmodule Config do
     @enforce_keys [:session, :vin, :model]
@@ -119,7 +120,7 @@ defmodule TayCalendar.TimerManager do
   def handle_continue(:update, state) do
     case state.to_update do
       [] ->
-        Logger.info("No timer updates required.")
+        Logger.info("No pending timer updates.")
         {:noreply, %State{state | to_update: nil}}
 
       ups ->
@@ -153,6 +154,8 @@ defmodule TayCalendar.TimerManager do
 
   defp existing_timers(config) do
     with {:ok, body} <- Porsche.emobility(config.session, config.vin, config.model) do
+      Stats.put_emobility(body)
+
       case Map.fetch(body, "timers") do
         {:ok, timers} when is_list(timers) -> {:ok, timers |> Enum.map(&ExistingTimer.from_api/1)}
         :error -> {:error, :timers_unavailable}

@@ -23,6 +23,7 @@ defmodule TayCalendar do
 
   defp app_children do
     [
+      TayCalendar.Stats,
       {Goth,
        name: TayCalendar.Supervisor.Goth,
        source: {
