@@ -7,16 +7,7 @@ defmodule TayCalendar.Scheduler do
   alias TayCalendar.TimerManager
   alias TayCalendar.TravelTime
 
-  @event_defaults %{
-    before: "off",
-    after: "off"
-  }
-
-  # Refresh calendars every hour
-  @calendars_interval 3600_000
-  # Refresh events every five minutes
-  @events_interval 300_000
-  # On failure, refresh after one minute
+  # On failure, refresh after one minute.
   @error_interval 60_000
 
   # Accept events that ended up to a day ago.
@@ -26,8 +17,26 @@ defmodule TayCalendar.Scheduler do
   @max_time_margin {7, :day}
 
   defmodule Config do
-    @enforce_keys [:goth, :timer_manager, :travel_time, :garage]
-    defstruct(@enforce_keys)
+    @event_defaults %{
+      before: "off",
+      after: "off"
+    }
+
+    @enforce_keys [:goth, :timer_manager]
+    defstruct(
+      goth: nil,
+      timer_manager: nil,
+      garage: nil,
+      travel_time: nil,
+      calendars_interval: 3600_000,
+      events_interval: 300_000,
+      event_defaults: %{}
+    )
+
+    def new(params) do
+      struct!(Config, params)
+      |> Map.update!(:event_defaults, &Map.merge(@event_defaults, &1))
+    end
   end
 
   defmodule State do
@@ -46,10 +55,10 @@ defmodule TayCalendar.Scheduler do
     minutes = integer(min: 1) |> string("m") |> post_traverse({:to_secs, []})
     seconds = integer(min: 1) |> string("s") |> post_traverse({:to_secs, []})
 
-    minutes_and = minutes |> optional(seconds)
-    hours_and = hours |> optional(minutes_and)
+    interval =
+      times(choice([hours, minutes, seconds]), min: 1)
+      |> post_traverse({:sum, []})
 
-    interval = choice([hours_and, minutes_and, seconds]) |> post_traverse({:sum, []})
     defparsec(:interval, interval |> eos())
 
     defp to_secs(rest, ["h", value], ctx, _, _), do: {rest, [value * 3600], ctx}
@@ -61,7 +70,7 @@ defmodule TayCalendar.Scheduler do
 
   def start_link(opts) do
     {config, opts} = Keyword.pop!(opts, :config)
-    GenServer.start_link(__MODULE__, struct!(Config, config), opts)
+    GenServer.start_link(__MODULE__, Config.new(config), opts)
   end
 
   @impl true
@@ -79,7 +88,7 @@ defmodule TayCalendar.Scheduler do
     case Google.Calendar.list(state.config.goth) do
       {:ok, cals} ->
         state = state |> update_calendars(cals)
-        Process.send_after(self(), :refresh_calendars, @calendars_interval)
+        Process.send_after(self(), :refresh_calendars, state.config.calendars_interval)
         {:noreply, state}
 
       {:error, err} ->
@@ -126,7 +135,7 @@ defmodule TayCalendar.Scheduler do
       events when is_list(events) ->
         Logger.info("Found #{Enum.count(events)} events.")
         state = update_events(events, state)
-        Process.send_after(self(), :refresh_events, @events_interval)
+        Process.send_after(self(), :refresh_events, state.config.events_interval)
         {:noreply, state}
 
       :error ->
@@ -148,13 +157,9 @@ defmodule TayCalendar.Scheduler do
   end
 
   defp update_events(events, state) do
-    defaults =
-      @event_defaults
-      |> Map.merge(Application.get_env(:tay_calendar, :event_defaults, %{}))
-
     events
     |> Enum.flat_map(fn event ->
-      defaults
+      state.config.event_defaults
       |> Map.merge(read_config(event.description))
       |> generate_timers(event, state)
     end)
@@ -224,6 +229,7 @@ defmodule TayCalendar.Scheduler do
     end)
   end
 
+  defp generate_before_timer(%{before: nil}, _, _), do: :disabled
   defp generate_before_timer(%{before: "off"}, _, _), do: :disabled
 
   defp generate_before_timer(%{before: margin}, event, state) do
@@ -261,6 +267,7 @@ defmodule TayCalendar.Scheduler do
     TravelTime.get(pid, garage, destination, time)
   end
 
+  defp generate_after_timer(%{after: nil}, _, _), do: :disabled
   defp generate_after_timer(%{after: "off"}, _, _), do: :disabled
 
   defp generate_after_timer(%{after: margin}, event, _state) do

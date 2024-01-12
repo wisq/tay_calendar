@@ -7,6 +7,18 @@ defmodule TayCalendar.Google.API do
     req(goth, params |> Keyword.put(:method, :post))
   end
 
+  defp req({:mock, pid}, params) do
+    ref = make_ref()
+    send(pid, {__MODULE__, self(), ref, Req.new(params)})
+
+    receive do
+      {__MODULE__, ^ref, result} ->
+        result
+    after
+      1000 -> raise "no mock response received"
+    end
+  end
+
   defp req(goth, params) do
     {:ok, token} = Goth.fetch(goth)
 
