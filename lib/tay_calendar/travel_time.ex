@@ -4,14 +4,15 @@ defmodule TayCalendar.TravelTime do
 
   @prefix "[#{inspect(__MODULE__)}]"
 
-  # Refresh travel time one hour prior to departure.
-  # @refresh_before_depart 3_600
   # Clean cache every hour.
   @cleanup_timer 3_600_000
 
   defmodule Entry do
     @enforce_keys [:origin, :destination, :arrival_time, :departure_time, :fetched_at]
     defstruct(@enforce_keys)
+
+    # Refresh travel time one hour prior to departure.
+    @refresh_before_depart 3_600
 
     def new(params) do
       params
@@ -21,6 +22,28 @@ defmodule TayCalendar.TravelTime do
 
     def is_expired?(%Entry{arrival_time: time}, now) do
       DateTime.compare(time, now) == :lt
+    end
+
+    def needs_refresh?(%Entry{departure_time: depart, fetched_at: fetched}) do
+      cutoff = depart |> DateTime.add(-@refresh_before_depart, :second)
+
+      cond do
+        DateTime.compare(fetched, cutoff) == :gt ->
+          # Entry was fetched after the cutoff, meaning it's already refreshed.
+          false
+
+        DateTime.compare(DateTime.utc_now(), cutoff) == :gt ->
+          # It's now after the cutoff, so we should refresh.
+          true
+
+        true ->
+          # It's not the cutoff yet, so no refresh needed.
+          false
+      end
+    end
+
+    def refresh(%Entry{} = entry, departure_time) do
+      %Entry{entry | departure_time: departure_time, fetched_at: DateTime.utc_now()}
     end
   end
 
@@ -80,8 +103,25 @@ defmodule TayCalendar.TravelTime do
     case Cache.fetch(cache, origin, destination, arrival_time) do
       {:ok, %Entry{} = entry} ->
         time = entry.departure_time
-        Logger.info("#{@prefix} Found departure time #{time} in cache for #{route.()}.")
-        {:reply, {:ok, time}, cache}
+        Logger.debug("#{@prefix} Found departure time #{time} in cache for #{route.()}.")
+
+        if Entry.needs_refresh?(entry) do
+          Logger.info("#{@prefix} Refreshing departure time for #{route.()} ...")
+
+          case refresh_depart_time(entry) do
+            {:ok, new_entry} ->
+              time1 = entry.departure_time
+              time2 = new_entry.departure_time
+              Logger.info("#{@prefix} Refreshed time: #{time1} => #{time2}")
+              {:reply, {:ok, time2}, Cache.put(cache, entry)}
+
+            {:error, _} = err ->
+              Logger.error("#{@prefix} Error refreshing: #{inspect(err)}")
+              {:reply, {:ok, entry.departure_time}, cache}
+          end
+        else
+          {:reply, {:ok, time}, cache}
+        end
 
       :error ->
         Logger.info("#{@prefix} Fetching departure time for #{route.()} ...")
@@ -145,6 +185,20 @@ defmodule TayCalendar.TravelTime do
       :error ->
         :error
     end)
+  end
+
+  defp refresh_depart_time(%Entry{} = entry) do
+    # Unlike above, we refresh using a single-pass query.
+    # We already have a pretty good grasp on the departure time,
+    # and we're just refining it at this point.
+    case query(entry.origin, entry.destination, entry.departure_time) do
+      {:ok, secs} ->
+        new_time = entry.arrival_time |> DateTime.add(-secs, :second)
+        {:ok, Entry.refresh(entry, new_time)}
+
+      {:error, _} = err ->
+        err
+    end
   end
 
   defp query(origin, destination, time) do
