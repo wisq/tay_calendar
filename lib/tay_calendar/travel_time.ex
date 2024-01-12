@@ -4,6 +4,16 @@ defmodule TayCalendar.TravelTime do
 
   @prefix "[#{inspect(__MODULE__)}]"
 
+  # The Google Distance Matrix API only uses arrival_time for transit, not for driving.
+  #
+  # To work around this, we'll start by assuming departure time = arrival time,
+  # then pick a new departure time based on how long that trip will take.
+  #
+  # We'll try up to `@max_passes` to get this right, but we'll stop if the current pass
+  # return a result that is less than `@pass_max_delta` seconds difference than
+  # the previous pass.
+  @max_passes 5
+  @pass_max_delta 60
   # Clean cache every hour.
   @cleanup_timer 3_600_000
 
@@ -147,24 +157,23 @@ defmodule TayCalendar.TravelTime do
   end
 
   defp get_depart_time(origin, destination, arrival_time) do
-    # The Google Distance Matrix API only uses arrival_time for transit, not for driving.
-    #
-    # To work around this, we'll start by assuming departure time = arrival time,
-    # then pick a new departure time based on how long that trip will take.
-    #
-    # We'll try three times, by which time the departure time should be pretty stable.
-    1..3
+    1..@max_passes
     |> Enum.reduce_while(arrival_time, fn passno, time ->
       case query(origin, destination, time) do
         {:ok, secs} ->
           new_time = arrival_time |> DateTime.add(-secs, :second)
           Logger.debug("#{@prefix} Pass ##{passno}: #{secs} seconds")
 
-          if in_past?(new_time) do
-            Logger.warning("Departure time is in the past: #{new_time}")
-            {:halt, new_time}
-          else
-            {:cont, new_time}
+          cond do
+            in_past?(new_time) ->
+              Logger.warning("Departure time is in the past: #{new_time}")
+              {:halt, new_time}
+
+            time_delta(time, new_time) < @pass_max_delta ->
+              {:halt, new_time}
+
+            true ->
+              {:cont, new_time}
           end
 
         {:error, err} ->
@@ -212,5 +221,9 @@ defmodule TayCalendar.TravelTime do
     # Add a bit of margin to account for possible request latency.
     cutoff = DateTime.utc_now() |> DateTime.add(15, :second)
     DateTime.compare(time, cutoff) == :lt
+  end
+
+  defp time_delta(t1, t2) do
+    abs(DateTime.to_unix(t1) - DateTime.to_unix(t2))
   end
 end
