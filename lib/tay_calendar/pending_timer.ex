@@ -18,7 +18,7 @@ defmodule TayCalendar.PendingTimer do
   end
 
   def is_covered_by?(%PendingTimer{} = pending, %ExistingTimer{} = existing) do
-    existing |> ExistingTimer.will_occur_at?(pending.time |> DateTime.to_naive()) &&
+    existing |> ExistingTimer.will_occur_at?(pending.time |> to_existing_time()) &&
       existing.active && existing.climate_enabled
   end
 
@@ -26,12 +26,29 @@ defmodule TayCalendar.PendingTimer do
     %ExistingTimer{
       id: id,
       active: true,
-      time: pending.time |> DateTime.to_naive(),
+      time: pending.time |> to_existing_time(),
       repeating: false,
       weekdays: nil,
       climate_enabled: true,
       charging_enabled: false,
       charge_target: 85
     }
+  end
+
+  def to_existing_time(%DateTime{} = dt) do
+    dt
+    |> DateTime.truncate(:second)
+    |> round_to_minute()
+    |> DateTime.to_naive()
+  end
+
+  defp round_to_minute(%DateTime{} = dt) do
+    seconds = dt |> DateTime.to_unix() |> rem(60)
+
+    if seconds <= 30 do
+      dt |> DateTime.add(-seconds, :second)
+    else
+      dt |> DateTime.add(60 - seconds, :second)
+    end
   end
 end
