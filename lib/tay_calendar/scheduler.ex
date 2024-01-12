@@ -222,7 +222,6 @@ defmodule TayCalendar.Scheduler do
           []
       end
     end)
-    |> IO.inspect()
   end
 
   defp generate_before_timer(%{before: "off"}, _, _), do: :disabled
