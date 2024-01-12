@@ -5,7 +5,7 @@ defmodule TayCalendar.Google.Event do
 
   alias TayCalendar.Google.API
 
-  @enforce_keys [:id, :name, :description, :start_time, :end_time]
+  @enforce_keys [:id, :name, :description, :location, :start_time, :end_time]
   defstruct(@enforce_keys)
 
   def list(goth, calendar_id, params \\ []) do
@@ -34,6 +34,7 @@ defmodule TayCalendar.Google.Event do
     %__MODULE__{
       id: id,
       name: name,
+      location: event |> Map.get("location"),
       description: event |> Map.get("description"),
       start_time: start_time |> parse_time(),
       end_time: end_time |> parse_time()

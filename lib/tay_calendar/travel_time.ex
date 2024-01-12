@@ -5,7 +5,9 @@ defmodule TayCalendar.TravelTime do
   @prefix "[#{inspect(__MODULE__)}]"
 
   # Refresh travel time one hour prior to departure.
-  # @refresh_before_depart 3600
+  # @refresh_before_depart 3_600
+  # Clean cache every hour.
+  @cleanup_timer 3_600_000
 
   defmodule Entry do
     @enforce_keys [:origin, :destination, :arrival_time, :departure_time, :fetched_at]
@@ -15,6 +17,10 @@ defmodule TayCalendar.TravelTime do
       params
       |> Keyword.put(:fetched_at, DateTime.utc_now())
       |> then(&struct!(__MODULE__, &1))
+    end
+
+    def is_expired?(%Entry{arrival_time: time}, now) do
+      DateTime.compare(time, now) == :lt
     end
   end
 
@@ -32,6 +38,18 @@ defmodule TayCalendar.TravelTime do
       key = {origin, destination, arrival_time}
       Map.put(cache, key, entry)
     end
+
+    def cleanup(cache) do
+      now = DateTime.utc_now()
+
+      {discard, keep} =
+        cache
+        |> Map.split_with(fn {_, entry} ->
+          Entry.is_expired?(entry, now)
+        end)
+
+      {Enum.count(discard), keep}
+    end
   end
 
   def start_link(opts) do
@@ -40,11 +58,16 @@ defmodule TayCalendar.TravelTime do
 
   def get(pid, origin, destination, %DateTime{} = arrival_time)
       when is_binary(origin) and is_binary(destination) do
-    GenServer.call(pid, {:get, origin, destination, arrival_time})
+    if in_past?(arrival_time) do
+      {:error, :arrival_time_in_past}
+    else
+      GenServer.call(pid, {:get, origin, destination, arrival_time})
+    end
   end
 
   @impl true
   def init(nil) do
+    Process.send_after(self(), :cleanup, @cleanup_timer)
     {:ok, Cache.new()}
   end
 
@@ -75,16 +98,34 @@ defmodule TayCalendar.TravelTime do
     end
   end
 
+  @impl true
+  def handle_info(:cleanup, cache) do
+    {count, cache} = Cache.cleanup(cache)
+    Logger.info("#{@prefix} Expired #{count} entries from cache.")
+    Process.send_after(self(), :cleanup, @cleanup_timer)
+    {:noreply, cache}
+  end
+
   defp get_depart_time(origin, destination, arrival_time) do
     # The Google Distance Matrix API only uses arrival_time for transit, not for driving.
-    # We'll try three times to get a stable departure time.
+    #
+    # To work around this, we'll start by assuming departure time = arrival time,
+    # then pick a new departure time based on how long that trip will take.
+    #
+    # We'll try three times, by which time the departure time should be pretty stable.
     1..3
     |> Enum.reduce_while(arrival_time, fn passno, time ->
       case query(origin, destination, time) do
         {:ok, secs} ->
           new_time = arrival_time |> DateTime.add(-secs, :second)
           Logger.debug("#{@prefix} Pass ##{passno}: #{secs} seconds")
-          {:cont, new_time}
+
+          if in_past?(new_time) do
+            Logger.warning("Departure time is in the past: #{new_time}")
+            {:halt, new_time}
+          else
+            {:cont, new_time}
+          end
 
         {:error, err} ->
           Logger.error("#{@prefix} Pass ##{passno}: failed!  #{inspect(err)}")
@@ -111,5 +152,11 @@ defmodule TayCalendar.TravelTime do
       {:ok, %{"rows" => [%{"elements" => [%{"duration_in_traffic" => %{"value" => secs}}]}]}} ->
         {:ok, secs}
     end
+  end
+
+  defp in_past?(time) do
+    # Add a bit of margin to account for possible request latency.
+    cutoff = DateTime.utc_now() |> DateTime.add(15, :second)
+    DateTime.compare(time, cutoff) == :lt
   end
 end

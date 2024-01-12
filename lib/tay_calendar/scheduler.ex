@@ -1,10 +1,16 @@
 defmodule TayCalendar.Scheduler do
   require Logger
-  use GenServer
+  use GenServer, restart: :temporary
 
   alias TayCalendar.Google
   alias TayCalendar.PendingTimer
   alias TayCalendar.TimerManager
+  alias TayCalendar.TravelTime
+
+  @event_defaults %{
+    before: "off",
+    after: "off"
+  }
 
   # Refresh calendars every hour
   @calendars_interval 3600_000
@@ -20,7 +26,7 @@ defmodule TayCalendar.Scheduler do
   @max_time_margin {7, :day}
 
   defmodule Config do
-    @enforce_keys [:goth, :timer_manager]
+    @enforce_keys [:goth, :timer_manager, :travel_time, :garage]
     defstruct(@enforce_keys)
   end
 
@@ -39,21 +45,18 @@ defmodule TayCalendar.Scheduler do
     hours = integer(min: 1) |> string("h") |> post_traverse({:to_secs, []})
     minutes = integer(min: 1) |> string("m") |> post_traverse({:to_secs, []})
     seconds = integer(min: 1) |> string("s") |> post_traverse({:to_secs, []})
-    time_unit = choice([hours, minutes, seconds])
 
-    defparsec(
-      :interval,
-      time_unit
-      |> repeat(
-        optional(ignore(string(" ")))
-        |> concat(time_unit)
-      )
-      |> eos()
-    )
+    minutes_and = minutes |> optional(seconds)
+    hours_and = hours |> optional(minutes_and)
 
-    def to_secs(rest, ["h", value], ctx, _, _), do: {rest, [value * 3600], ctx}
-    def to_secs(rest, ["m", value], ctx, _, _), do: {rest, [value * 60], ctx}
-    def to_secs(rest, ["s", value], ctx, _, _), do: {rest, [value], ctx}
+    interval = choice([hours_and, minutes_and, seconds]) |> post_traverse({:sum, []})
+    defparsec(:interval, interval |> eos())
+
+    defp to_secs(rest, ["h", value], ctx, _, _), do: {rest, [value * 3600], ctx}
+    defp to_secs(rest, ["m", value], ctx, _, _), do: {rest, [value * 60], ctx}
+    defp to_secs(rest, ["s", value], ctx, _, _), do: {rest, [value], ctx}
+
+    defp sum(rest, secs, ctx, _, _), do: {rest, [Enum.sum(secs)], ctx}
   end
 
   def start_link(opts) do
@@ -122,7 +125,7 @@ defmodule TayCalendar.Scheduler do
     |> then(fn
       events when is_list(events) ->
         Logger.info("Found #{Enum.count(events)} events.")
-        state = state |> update_events(events)
+        state = update_events(events, state)
         Process.send_after(self(), :refresh_events, @events_interval)
         {:noreply, state}
 
@@ -144,11 +147,21 @@ defmodule TayCalendar.Scheduler do
     end
   end
 
-  defp update_events(state, events) do
-    update_timers(state, events |> Enum.flat_map(&generate_timers/1))
+  defp update_events(events, state) do
+    defaults =
+      @event_defaults
+      |> Map.merge(Application.get_env(:tay_calendar, :event_defaults, %{}))
+
+    events
+    |> Enum.flat_map(fn event ->
+      defaults
+      |> Map.merge(read_config(event.description))
+      |> generate_timers(event, state)
+    end)
+    |> update_timers(state)
   end
 
-  defp update_timers(state, timers) do
+  defp update_timers(timers, state) do
     now = DateTime.utc_now()
 
     timers =
@@ -168,55 +181,117 @@ defmodule TayCalendar.Scheduler do
     end
   end
 
-  defp generate_timers(%Google.Event{description: nil, name: name}) do
-    Logger.debug("Event #{inspect(name)} has no description, skipping.")
-    []
-  end
+  defp read_config(nil), do: %{}
 
-  defp generate_timers(%Google.Event{description: desc} = event) when is_binary(desc) do
-    desc
+  defp read_config(description) do
+    description
     |> String.split("\n")
     |> Enum.map(&String.trim/1)
-    |> Enum.flat_map(&handle_timer_description(&1, event))
+    |> Enum.flat_map(fn
+      "#TayCalBefore: " <> arg ->
+        [{:before, arg}]
+
+      "#TayCalAfter: " <> arg ->
+        [{:after, arg}]
+
+      "#TayCal" <> _ = opt ->
+        Logger.error("Unknown directive: #{inspect(opt)}")
+        []
+
+      _ ->
+        []
+    end)
+    |> Map.new()
   end
 
-  defp handle_timer_description("#TayCalBefore: " <> arg, event) do
-    with {:ok, secs} <- parse_interval(arg) do
-      [
-        %PendingTimer{
-          event: event,
-          time: event.start_time |> DateTime.add(-secs, :second)
-        }
-      ]
-    else
-      _ -> []
+  defp generate_timers(options, event, state) do
+    [
+      before: &generate_before_timer/3,
+      after: &generate_after_timer/3
+    ]
+    |> Enum.flat_map(fn {label, fun} ->
+      case fun.(options, event, state) do
+        :disabled ->
+          []
+
+        {:ok, %PendingTimer{} = timer} ->
+          [timer]
+
+        {:error, err} ->
+          Logger.error("Error generating #{label} timer: #{inspect(err)}")
+          []
+      end
+    end)
+    |> IO.inspect()
+  end
+
+  defp generate_before_timer(%{before: "off"}, _, _), do: :disabled
+
+  defp generate_before_timer(%{before: margin}, event, state) do
+    offset_fun = fn term, time ->
+      case term do
+        "travel" ->
+          get_departure_time(
+            state.config.travel_time,
+            state.config.garage,
+            event.location,
+            time
+          )
+
+        _ ->
+          with {:ok, secs} <- parse_interval(term) do
+            {:ok, time |> DateTime.add(-secs, :second)}
+          end
+      end
+    end
+
+    with {:ok, time} <- event.start_time |> apply_offsets(margin, offset_fun) do
+      {:ok, %PendingTimer{time: time, event: event}}
     end
   end
 
-  defp handle_timer_description("#TayCalAfter: " <> arg, event) do
-    with {:ok, secs} <- parse_interval(arg) do
-      [
-        %PendingTimer{
-          event: event,
-          time: event.end_time |> DateTime.add(secs, :second)
-        }
-      ]
-    else
-      _ -> []
+  defp get_departure_time(_, nil, _, _) do
+    {:error, "Garage not set, travel time not available."}
+  end
+
+  defp get_departure_time(_, _, nil, _) do
+    {:error, "Event location not set, travel time not available."}
+  end
+
+  defp get_departure_time(pid, garage, destination, time) do
+    TravelTime.get(pid, garage, destination, time)
+  end
+
+  defp generate_after_timer(%{after: "off"}, _, _), do: :disabled
+
+  defp generate_after_timer(%{after: margin}, event, _state) do
+    offset_fun = fn term, time ->
+      with {:ok, secs} <- parse_interval(term) do
+        {:ok, time |> DateTime.add(secs, :second)}
+      end
+    end
+
+    with {:ok, time} <- event.end_time |> apply_offsets(margin, offset_fun) do
+      {:ok, %PendingTimer{time: time, event: event}}
     end
   end
 
-  defp handle_timer_description("#TayCal" <> _ = opt, _) do
-    Logger.error("Unknown directive: #{inspect(opt)}")
-    []
+  defp apply_offsets(time, margin, offset_fun) do
+    margin
+    |> String.replace(~r/\s+/, "")
+    |> String.split("+")
+    |> Enum.reduce_while({:ok, time}, fn term, {:ok, time} ->
+      case offset_fun.(term, time) do
+        {:ok, %DateTime{} = new_time} -> {:cont, {:ok, new_time}}
+        {:error, _} = err -> {:halt, err}
+      end
+    end)
   end
 
-  defp handle_timer_description(_, _), do: []
-
-  def parse_interval(str) do
+  defp parse_interval(str) do
     case Parser.interval(str) do
-      {:ok, secs, "", _, _, _} ->
-        {:ok, secs |> Enum.sum()}
+      {:ok, [secs], "", _, _, _} ->
+        {:ok, secs}
 
       {:error, msg, rest, _, _, _} ->
         Logger.warning("Error parsing #{inspect(str)} as interval: #{msg} at #{inspect(rest)}")

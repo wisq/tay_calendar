@@ -24,6 +24,7 @@ defmodule TayCalendar do
   defp app_children do
     [
       TayCalendar.Stats,
+      {TayCalendar.TravelTime, name: TayCalendar.Supervisor.TravelTime},
       {Goth,
        name: TayCalendar.Supervisor.Goth,
        source: {
@@ -48,7 +49,9 @@ defmodule TayCalendar do
        name: TayCalendar.Supervisor.Scheduler,
        config: [
          goth: TayCalendar.Supervisor.Goth,
-         timer_manager: TayCalendar.Supervisor.TimerManager
+         timer_manager: TayCalendar.Supervisor.TimerManager,
+         travel_time: TayCalendar.Supervisor.TravelTime,
+         garage: Secrets.get("GARAGE_LOCATION")
        ]}
     ]
   end
