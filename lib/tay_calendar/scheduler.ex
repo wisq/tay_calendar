@@ -1,6 +1,6 @@
 defmodule TayCalendar.Scheduler do
   require Logger
-  use GenServer, restart: :temporary
+  use GenServer
 
   alias TayCalendar.Google
   alias TayCalendar.PendingTimer
