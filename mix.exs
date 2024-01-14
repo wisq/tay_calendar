@@ -35,7 +35,9 @@ defmodule TayCalendar.MixProject do
       {:nimble_parsec, "~> 1.4.0"},
       {:porsche_conn_ex, github: "wisq/porsche_conn_ex", tag: "e514264"},
       {:dogstatsd, "~> 0.0.4"},
-      {:google_maps, "~> 0.11"}
+      {:google_maps, "~> 0.11"},
+      {:mix_test_watch, "~> 1.0", only: :dev, runtime: false},
+      {:ex_git_test, "~> 0.1.2", only: [:dev, :test], runtime: false}
     ]
   end
 end
