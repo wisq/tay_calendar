@@ -22,9 +22,9 @@ defmodule TayCalendar.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      # {:dep_from_hexpm, "~> 0.3.0"},
-      # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
-      {:goth, "~> 1.3"},
+      # branch: finch-deprecation (v1.4.2 + commit 972bf98)
+      #   Fixes :protocol deprecation warning.
+      {:goth, github: "wisq/goth", tag: "fe34b72"},
       {:req, "~> 0.4.0"},
       {:timex, "~> 3.7.11"},
       {:nimble_parsec, "~> 1.4.0"},
