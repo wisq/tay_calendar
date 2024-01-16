@@ -2,19 +2,22 @@ defmodule TayCalendar.TimerManager do
   require Logger
   use GenServer
 
-  # If planning fails, retry after 30 secs.
-  @error_retry 30_000
-  # Pause for 10 secs between timer updates.
-  @update_delay 10_000
-
-  alias PorscheConnEx.Client, as: Porsche
+  alias TayCalendar.Porsche
   alias TayCalendar.ExistingTimer
   alias TayCalendar.PendingTimer
   alias TayCalendar.Stats
 
   defmodule Config do
     @enforce_keys [:session, :vin, :model]
-    defstruct(@enforce_keys)
+    defstruct(
+      session: nil,
+      vin: nil,
+      model: nil,
+      # If planning fails, retry after 30 secs.
+      error_retry: 30_000,
+      # Pause for 10 secs between timer updates.
+      update_delay: 10_000
+    )
   end
 
   defmodule State do
@@ -114,7 +117,7 @@ defmodule TayCalendar.TimerManager do
     else
       err ->
         Logger.error("Error while planning update: #{inspect(err)}")
-        {:noreply, state, @error_retry}
+        {:noreply, state, state.config.error_retry}
     end
   end
 
@@ -127,7 +130,7 @@ defmodule TayCalendar.TimerManager do
 
       ups ->
         Logger.info("Pending updates: #{Enum.count(ups)} remaining.")
-        {:noreply, state, @update_delay}
+        {:noreply, state, state.config.update_delay}
     end
   end
 

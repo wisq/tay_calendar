@@ -1,31 +1,11 @@
 defmodule TayCalendar.Test.DataFactory.Google do
   alias TayCalendar.Google.{Calendar, Event}
+  alias TayCalendar.Test.DataFactory.Time, as: TimeFactory
 
   @calendar_id_template "c_########@group.calendar.google.com"
   @event_id_template "_########"
   @hex [?0..?9, ?a..?f] |> Enum.flat_map(&Enum.to_list/1)
   @alphabet ?a..?z
-
-  @one_day 86400
-  @one_week 7 * @one_day
-
-  # Future events should be at least 2 hours in the future,
-  # and past events should be at least 2 hours in the past.
-  #
-  # This is because many tests use random "before" and "after" offsets that may
-  # be up to 2 hours, and we don't want timers that should be omitted (because
-  # they're in the past) to be included, or vice versa.
-  @timing_minimum 7201
-
-  @timezones [
-    "America/Toronto",
-    "America/Vancouver",
-    "America/Regina",
-    "Europe/Berlin",
-    "Europe/London",
-    "Asia/Tokyo",
-    "Australia/Sydney"
-  ]
 
   def calendar(attrs \\ []) do
     %Calendar{
@@ -38,7 +18,7 @@ defmodule TayCalendar.Test.DataFactory.Google do
 
   def event(attrs \\ []) do
     {timing, attrs} = Keyword.pop(attrs, :timing, :future)
-    {start_time, end_time} = generate_time_pair(timing)
+    {start_time, end_time} = TimeFactory.generate_time_pair(timing)
 
     %Event{
       id: generate_event_id(),
@@ -76,44 +56,4 @@ defmodule TayCalendar.Test.DataFactory.Google do
     |> Enum.map(fn _ -> Enum.random(@alphabet) end)
     |> String.Chars.to_string()
   end
-
-  defp generate_time_pair(timing, tz \\ random_timezone())
-
-  defp generate_time_pair(:past, tz) do
-    before_now = @timing_minimum..@one_week |> Enum.random()
-    duration = 1..@one_day |> Enum.random()
-
-    now = DateTime.utc_now() |> Timex.Timezone.convert(tz)
-    end_time = now |> DateTime.add(-before_now, :second)
-    start_time = end_time |> DateTime.add(-duration, :second)
-    {start_time, end_time}
-  end
-
-  defp generate_time_pair(:future, tz) do
-    after_now = @timing_minimum..@one_week |> Enum.random()
-    duration = 1..@one_day |> Enum.random()
-
-    now = DateTime.utc_now() |> Timex.Timezone.convert(tz)
-    start_time = now |> DateTime.add(after_now, :second)
-    end_time = start_time |> DateTime.add(duration, :second)
-    {start_time, end_time}
-  end
-
-  defp generate_time_pair(:now, tz) do
-    before_now = 5..div(@one_day, 2) |> Enum.random()
-    after_now = 5..div(@one_day, 2) |> Enum.random()
-
-    now = DateTime.utc_now() |> Timex.Timezone.convert(tz)
-    start_time = now |> DateTime.add(-before_now, :second)
-    end_time = now |> DateTime.add(after_now, :second)
-    {start_time, end_time}
-  end
-
-  defp generate_time_pair(:random, tz) do
-    [:past, :future, :now]
-    |> Enum.random()
-    |> generate_time_pair(tz)
-  end
-
-  defp random_timezone, do: @timezones |> Enum.random()
 end

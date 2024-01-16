@@ -3,15 +3,18 @@ defmodule TayCalendar.ExistingTimer do
 
   @enforce_keys [
     :id,
-    :active,
-    :time,
-    :repeating,
-    :weekdays,
-    :climate_enabled,
-    :charging_enabled,
-    :charge_target
+    :time
   ]
-  defstruct(@enforce_keys)
+  defstruct(
+    id: nil,
+    time: nil,
+    active: true,
+    repeating: false,
+    weekdays: nil,
+    climate_enabled: true,
+    charging_enabled: false,
+    charge_target: 85
+  )
 
   @iso_weekdays ~w{MONDAY TUESDAY WEDNESDAY THURSDAY FRIDAY SATURDAY SUNDAY}
                 |> Enum.with_index(1)
@@ -65,7 +68,7 @@ defmodule TayCalendar.ExistingTimer do
   defp put_api_frequency(json, %ExistingTimer{repeating: true, weekdays: weekdays}) do
     json
     |> Map.merge(%{
-      "frequency" => "SINGLE",
+      "frequency" => "CYCLIC",
       "weekDays" =>
         @iso_weekdays
         |> Map.new(fn {name, number} ->

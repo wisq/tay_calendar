@@ -8,6 +8,8 @@ defmodule TayCalendar.Stats do
     %{id: __MODULE__, start: {DogStatsd, :start_link, [%{}, opts]}}
   end
 
+  def put_emobility(%{no_stats: true}), do: :noop
+
   def put_emobility(json) do
     [
       json |> Map.fetch!("batteryChargeStatus") |> battery_stats(),

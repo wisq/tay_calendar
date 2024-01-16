@@ -25,13 +25,7 @@ defmodule TayCalendar.PendingTimer do
   def to_existing(%PendingTimer{} = pending, id) do
     %ExistingTimer{
       id: id,
-      active: true,
-      time: pending.time |> to_existing_time(),
-      repeating: false,
-      weekdays: nil,
-      climate_enabled: true,
-      charging_enabled: false,
-      charge_target: 85
+      time: pending.time |> to_existing_time()
     }
   end
 
