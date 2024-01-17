@@ -222,6 +222,12 @@ defmodule TayCalendar.Scheduler do
         {:ok, %PendingTimer{} = timer} ->
           [timer]
 
+        {:error, :arrival_time_in_past} ->
+          # This happens when we try to request a departure time for an
+          # already-passed arrival time.  The timer will definitely be in the
+          # past anyway, so we can ignore it.
+          []
+
         {:error, err} ->
           Logger.error("Error generating #{label} timer: #{inspect(err)}")
           []
