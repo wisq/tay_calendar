@@ -61,7 +61,8 @@ defmodule TayCalendar do
          goth: TayCalendar.Supervisor.Goth,
          timer_manager: TayCalendar.Supervisor.TimerManager,
          travel_time: TayCalendar.Supervisor.TravelTime,
-         garage: Secrets.get("GARAGE_LOCATION")
+         garage: Secrets.get("GARAGE_LOCATION"),
+         event_defaults: Application.fetch_env!(:tay_calendar, :event_defaults)
        ]}
     ]
   end
