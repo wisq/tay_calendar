@@ -38,10 +38,20 @@ defmodule TayCalendar do
          username: Secrets.fetch!("PORSCHE_USERNAME"),
          password: Secrets.fetch!("PORSCHE_PASSWORD")
        ]},
+      {TayCalendar.OffPeakCharger,
+       name: TayCalendar.Supervisor.OffPeakCharger,
+       config:
+         Application.get_env(:tay_calendar, :off_peak_charger, %{})
+         |> Map.merge(%{
+           session: TayCalendar.Supervisor.PorscheSession,
+           vin: Secrets.fetch!("PORSCHE_VIN"),
+           model: Secrets.fetch!("PORSCHE_MODEL")
+         })},
       {TayCalendar.TimerManager,
        name: TayCalendar.Supervisor.TimerManager,
        config: [
          session: TayCalendar.Supervisor.PorscheSession,
+         off_peak_charger: TayCalendar.Supervisor.OffPeakCharger,
          vin: Secrets.fetch!("PORSCHE_VIN"),
          model: Secrets.fetch!("PORSCHE_MODEL")
        ]},

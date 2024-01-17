@@ -3,14 +3,14 @@ defmodule TayCalendar.TimerManager do
   use GenServer
 
   alias TayCalendar.Porsche
-  alias TayCalendar.ExistingTimer
-  alias TayCalendar.PendingTimer
-  alias TayCalendar.Stats
+  alias TayCalendar.{ExistingTimer, PendingTimer}
+  alias TayCalendar.{Stats, OffPeakCharger}
 
   defmodule Config do
     @enforce_keys [:session, :vin, :model]
     defstruct(
       session: nil,
+      off_peak_charger: nil,
       vin: nil,
       model: nil,
       # If planning fails, retry after 30 secs.
@@ -160,6 +160,7 @@ defmodule TayCalendar.TimerManager do
   defp existing_timers(config) do
     with {:ok, body} <- Porsche.emobility(config.session, config.vin, config.model) do
       Stats.put_emobility(body)
+      OffPeakCharger.put_emobility(config.off_peak_charger, body)
 
       case Map.fetch(body, "timers") do
         {:ok, timers} when is_list(timers) -> {:ok, timers |> Enum.map(&ExistingTimer.from_api/1)}
