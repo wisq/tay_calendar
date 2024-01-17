@@ -8,12 +8,11 @@ defmodule TayCalendar.TimerManager do
   @update_delay 10_000
 
   alias PorscheConnEx.Client, as: Porsche
-  alias TayCalendar.ExistingTimer
-  alias TayCalendar.PendingTimer
-  alias TayCalendar.Stats
+  alias TayCalendar.{ExistingTimer, PendingTimer}
+  alias TayCalendar.{Stats, OffPeakCharger}
 
   defmodule Config do
-    @enforce_keys [:session, :vin, :model]
+    @enforce_keys [:session, :off_peak_charger, :vin, :model]
     defstruct(@enforce_keys)
   end
 
@@ -157,6 +156,7 @@ defmodule TayCalendar.TimerManager do
   defp existing_timers(config) do
     with {:ok, body} <- Porsche.emobility(config.session, config.vin, config.model) do
       Stats.put_emobility(body)
+      OffPeakCharger.put_emobility(config.off_peak_charger, body)
 
       case Map.fetch(body, "timers") do
         {:ok, timers} when is_list(timers) -> {:ok, timers |> Enum.map(&ExistingTimer.from_api/1)}
