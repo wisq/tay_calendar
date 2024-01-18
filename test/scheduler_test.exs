@@ -79,7 +79,13 @@ defmodule TayCalendar.SchedulerTest do
   end
 
   test "uses latest calendar ID(s) for events refresh" do
-    {:ok, _} = start_scheduler(calendars_interval: 100, events_interval: 100)
+    {:ok, _} = start_scheduler(calendars_interval: 1, events_interval: 1)
+
+    # Note: The `Process.sleep`s are important to ensure that events don't
+    # double up, causing sporadic hard-to-reproduce errors.
+    #
+    # This seems to be some sort of nondeterministic `Process.send_after`
+    # behaviour, possibly in conjunction with my message-passing-style mocking.
 
     for _ <- 1..3 do
       calendars = 1..Enum.random(0..3)//1 |> Enum.map(fn _ -> Factory.calendar() end)
@@ -87,6 +93,7 @@ defmodule TayCalendar.SchedulerTest do
       # Scheduler retrieves calendar list:
       assert_receive {Google, pid, ref, req}, 200
       assert req.url.path =~ ~r/calendarList$/
+      Process.sleep(10)
       send(pid, {Google, ref, {:ok, calendars}})
 
       # Scheduler retrieves events for each calendar:
@@ -95,6 +102,7 @@ defmodule TayCalendar.SchedulerTest do
       |> Enum.each(fn calendar ->
         assert_receive {Google, pid, ref, req}, 200
         assert req.url.path =~ calendar.id
+        Process.sleep(10)
         send(pid, {Google, ref, {:ok, []}})
       end)
     end
