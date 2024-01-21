@@ -29,7 +29,7 @@ defmodule TayCalendar.Scheduler do
       garage: nil,
       travel_time: nil,
       calendars_interval: 3600_000,
-      events_interval: 60_000,
+      events_interval: 300_000,
       event_defaults: %{}
     )
 
