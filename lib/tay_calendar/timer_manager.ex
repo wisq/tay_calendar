@@ -13,8 +13,8 @@ defmodule TayCalendar.TimerManager do
       off_peak_charger: nil,
       vin: nil,
       model: nil,
-      # If planning fails, retry after 30 secs.
-      error_retry: 30_000,
+      # If planning fails, retry after 60 secs.
+      error_retry: 60_000,
       # Pause for 10 secs between timer updates.
       update_delay: 10_000
     )
