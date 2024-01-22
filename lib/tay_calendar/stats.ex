@@ -13,7 +13,8 @@ defmodule TayCalendar.Stats do
   def put_emobility(json) do
     [
       json |> Map.fetch!("batteryChargeStatus") |> battery_stats(),
-      json |> Map.fetch!("directClimatisation") |> climate_stats()
+      json |> Map.fetch!("directClimatisation") |> climate_stats(),
+      json |> try_parse_emobility()
     ]
     |> Enum.reduce(&Map.merge/2)
     |> record_stats()
@@ -46,5 +47,24 @@ defmodule TayCalendar.Stats do
         batch.gauge(__MODULE__, "#{@prefix}.#{key}", value)
       end)
     end)
+  end
+
+  defp try_parse_emobility(json) do
+    case PorscheConnEx.Struct.Emobility.load(json) do
+      {:ok, _} ->
+        Logger.info("Emobility parsed successfully.")
+        %{"emobility.parse.success" => 1}
+
+      err ->
+        timestamp = DateTime.utc_now() |> DateTime.to_unix(:microsecond)
+        filename = "/tmp/taycal/#{timestamp}.exs"
+
+        case File.write(filename, {json, err} |> inspect(pretty: true)) do
+          :ok -> Logger.warning("Got error parsing emobility, logged to #{filename}.")
+          {:error, e} -> Logger.error("Got #{inspect(e)} writing to #{filename}.")
+        end
+
+        %{"emobility.parse.success" => 0}
+    end
   end
 end

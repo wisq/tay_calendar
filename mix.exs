@@ -33,7 +33,7 @@ defmodule TayCalendar.MixProject do
       {:req, "~> 0.4.0"},
       {:timex, "~> 3.7.11"},
       {:nimble_parsec, "~> 1.4.0"},
-      {:porsche_conn_ex, github: "wisq/porsche_conn_ex", tag: "cf4634d"},
+      {:porsche_conn_ex, github: "wisq/porsche_conn_ex", tag: "2e7d753"},
       {:dogstatsd, "~> 0.0.4"},
       {:google_maps, "~> 0.11"},
       {:mix_test_watch, "~> 1.0", only: :dev, runtime: false},
