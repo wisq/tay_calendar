@@ -28,14 +28,14 @@ defmodule TayCalendar.Stats do
        }) do
     %{
       "battery.charge.percent" => charge_percent,
-      "battery.charge.rate" => if(charge_mode == "OFF", do: nil, else: charge_rate),
-      "battery.charge.full.minutes" => charge_full_mins,
+      "battery.charge.rate" => if(charge_mode == "OFF", do: 0, else: charge_rate),
+      "battery.charge.full.minutes" => charge_full_mins || 0,
       "battery.range.km" => range_km
     }
   end
 
   defp climate_stats(%{"remainingClimatisationTime" => mins}) do
-    %{"climate.minutes.left" => mins}
+    %{"climate.minutes.left" => mins || 0}
   end
 
   defp record_stats(map) do
