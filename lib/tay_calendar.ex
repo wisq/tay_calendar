@@ -23,7 +23,6 @@ defmodule TayCalendar do
 
   defp app_children do
     [
-      TayCalendar.Stats,
       {TayCalendar.TravelTime, name: TayCalendar.Supervisor.TravelTime},
       {Goth,
        name: TayCalendar.Supervisor.Goth,
@@ -38,6 +37,7 @@ defmodule TayCalendar do
          username: Secrets.fetch!("PORSCHE_USERNAME"),
          password: Secrets.fetch!("PORSCHE_PASSWORD")
        ]},
+      {TayCalendar.Stats, name: TayCalendar.Supervisor.Stats},
       {TayCalendar.OffPeakCharger,
        name: TayCalendar.Supervisor.OffPeakCharger,
        config:
@@ -52,6 +52,7 @@ defmodule TayCalendar do
        config: [
          session: TayCalendar.Supervisor.PorscheSession,
          off_peak_charger: TayCalendar.Supervisor.OffPeakCharger,
+         stats: TayCalendar.Supervisor.Stats,
          vin: Secrets.fetch!("PORSCHE_VIN"),
          model: Secrets.fetch!("PORSCHE_MODEL")
        ]},

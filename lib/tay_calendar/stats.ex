@@ -1,4 +1,5 @@
 defmodule TayCalendar.Stats do
+  use GenServer
   require Logger
 
   @prefix "taycal"
@@ -7,20 +8,29 @@ defmodule TayCalendar.Stats do
   alias PorscheConnEx.Struct.Emobility.ChargeStatus
   alias PorscheConnEx.Struct.Emobility.DirectClimate
 
-  def child_spec(opts) do
-    opts = Keyword.put(opts, :name, __MODULE__)
-    %{id: __MODULE__, start: {DogStatsd, :start_link, [%{}, opts]}}
+  def start_link(opts) do
+    GenServer.start_link(__MODULE__, nil, opts)
   end
 
-  def put_emobility(%{no_stats: true}), do: :noop
+  def put_emobility(pid, %Emobility{} = emob) do
+    GenServer.cast(pid, {:emobility, emob})
+  end
 
-  def put_emobility(%Emobility{} = emob) do
+  @impl true
+  def init(_) do
+    {:ok, _dd_pid} = DogStatsd.start_link(%{})
+  end
+
+  @impl true
+  def handle_cast({:emobility, %Emobility{} = emob}, dd_pid) do
     [
       emob.charging |> charge_stats(),
       emob.direct_climate |> climate_stats()
     ]
     |> Enum.reduce(&Map.merge/2)
-    |> record_stats()
+    |> record_stats(dd_pid)
+
+    {:noreply, dd_pid}
   end
 
   defp charge_stats(%ChargeStatus{
@@ -42,12 +52,12 @@ defmodule TayCalendar.Stats do
     %{"climate.minutes.left" => mins || 0}
   end
 
-  defp record_stats(map) do
-    DogStatsd.batch(__MODULE__, fn batch ->
+  defp record_stats(map, dd_pid) do
+    DogStatsd.batch(dd_pid, fn batch ->
       map
       |> Enum.reject(fn {_, value} -> is_nil(value) end)
       |> Enum.each(fn {key, value} ->
-        batch.gauge(__MODULE__, "#{@prefix}.#{key}", value)
+        batch.gauge(dd_pid, "#{@prefix}.#{key}", value)
       end)
     end)
   end

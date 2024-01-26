@@ -12,6 +12,7 @@ defmodule TayCalendar.TimerManager do
     defstruct(
       session: nil,
       off_peak_charger: nil,
+      stats: nil,
       vin: nil,
       model: nil,
       # If planning fails, retry after 60 secs.
@@ -160,7 +161,7 @@ defmodule TayCalendar.TimerManager do
 
   defp existing_timers(config) do
     with {:ok, emob} <- Porsche.emobility(config.session, config.vin, config.model) do
-      Stats.put_emobility(emob)
+      Stats.put_emobility(config.stats, emob)
       OffPeakCharger.put_emobility(config.off_peak_charger, emob)
       {:ok, emob.timers}
     end

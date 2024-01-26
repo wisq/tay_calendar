@@ -165,7 +165,6 @@ defmodule TayCalendar.TimerManagerTest do
     %Emobility{
       timers: timers
     }
-    |> Map.put(:no_stats, true)
   end
 
   defp to_naive_seconds(%NaiveDateTime{} = ndt) do
