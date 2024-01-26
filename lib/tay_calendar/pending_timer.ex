@@ -1,6 +1,7 @@
 defmodule TayCalendar.PendingTimer do
   alias __MODULE__
-  alias TayCalendar.ExistingTimer
+  alias PorscheConnEx.Struct.Emobility.Timer
+  alias TayCalendar.TimerUtils
 
   @enforce_keys [:time, :event]
   defstruct(@enforce_keys)
@@ -17,15 +18,19 @@ defmodule TayCalendar.PendingTimer do
     end
   end
 
-  def is_covered_by?(%PendingTimer{} = pending, %ExistingTimer{} = existing) do
-    existing |> ExistingTimer.will_occur_at?(pending.time |> to_existing_time()) &&
-      existing.active && existing.climate_enabled
+  def is_covered_by?(%PendingTimer{} = pending, %Timer{} = existing) do
+    existing |> TimerUtils.will_occur_at?(pending.time |> to_existing_time()) &&
+      existing.active? && existing.climate?
   end
 
   def to_existing(%PendingTimer{} = pending, id) do
-    %ExistingTimer{
+    %Timer{
       id: id,
-      time: pending.time |> to_existing_time()
+      active?: true,
+      depart_time: pending.time |> to_existing_time(),
+      repeating?: false,
+      charge?: false,
+      climate?: true
     }
   end
 

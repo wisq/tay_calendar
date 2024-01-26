@@ -2,9 +2,13 @@ defmodule TayCalendar.TimerManagerTest do
   use ExUnit.Case, async: true
 
   alias TayCalendar.TimerManager
-  alias TayCalendar.{PendingTimer, ExistingTimer}
+  alias TayCalendar.PendingTimer
   alias TayCalendar.Porsche
 
+  alias PorscheConnEx.Struct.Emobility
+  alias PorscheConnEx.Struct.Emobility.Timer
+
+  alias TayCalendar.Test.DataFactory
   alias TayCalendar.Test.DataFactory.Google, as: EventFactory
 
   @vin "JN3MS37A9PW202929"
@@ -27,20 +31,20 @@ defmodule TayCalendar.TimerManagerTest do
 
     1..2
     |> Enum.each(fn _ ->
-      assert_receive {Porsche, :put_timer, pid, ref, {@vin, @model, params}}
+      assert_receive {Porsche, :put_timer, pid, ref, {@vin, @model, timer}}
 
-      assert %{
-               "timerID" => id,
-               "active" => true,
-               "chargeOption" => false,
-               "climatised" => true,
-               "departureDateTime" => depart_time,
-               "frequency" => "SINGLE"
-             } = params
+      assert %Timer{
+               id: id,
+               active?: true,
+               charge?: false,
+               climate?: true,
+               depart_time: depart_time,
+               repeating?: false
+             } = timer
 
-      index = String.to_integer(id) - 1
+      index = id - 1
       expected_time = Enum.at(timers, index).time |> to_naive_seconds()
-      actual_time = Timex.parse!(depart_time, "{ISO:Extended}") |> to_naive_seconds()
+      actual_time = depart_time |> to_naive_seconds()
       assert_in_delta(expected_time, actual_time, 30)
 
       send(pid, {Porsche, ref, {:ok, true}})
@@ -64,7 +68,7 @@ defmodule TayCalendar.TimerManagerTest do
       pending
       |> Enum.with_index(1)
       |> Enum.map(fn {p, i} ->
-        PendingTimer.to_existing(p, i) |> ExistingTimer.to_api()
+        PendingTimer.to_existing(p, i)
       end)
 
     TimerManager.push(pid, pending)
@@ -74,7 +78,7 @@ defmodule TayCalendar.TimerManagerTest do
     refute_receive {Porsche, :put_timer, _, _, _}
 
     # Now change one of the existing timers:
-    changed_existing = existing |> List.update_at(0, &Map.replace!(&1, "active", false))
+    changed_existing = existing |> List.update_at(0, fn t -> %Timer{t | active?: false} end)
 
     TimerManager.push(pid, pending)
     assert_receive {Porsche, :emobility, pid, ref, {@vin, @model}}
@@ -102,8 +106,7 @@ defmodule TayCalendar.TimerManagerTest do
     existing =
       1..4
       |> Enum.map(fn n ->
-        %ExistingTimer{id: n, time: time, repeating: true, weekdays: [n]}
-        |> ExistingTimer.to_api()
+        DataFactory.timer(id: n, depart_time: time, repeating?: true)
       end)
 
     TimerManager.push(pid, pending)
@@ -117,7 +120,6 @@ defmodule TayCalendar.TimerManagerTest do
              pending
              |> Enum.at(0)
              |> PendingTimer.to_existing(5)
-             |> ExistingTimer.to_api()
 
     send(pid, {Porsche, ref, {:ok, true}})
 
@@ -135,13 +137,11 @@ defmodule TayCalendar.TimerManagerTest do
       %PendingTimer{time: event.end_time |> DateTime.add(123, :second), event: event}
     ]
 
-    existing =
-      [
-        pending |> Enum.at(0) |> PendingTimer.to_existing(1),
-        pending |> Enum.at(1) |> PendingTimer.to_existing(2),
-        %ExistingTimer{id: 3, time: ~N[2030-01-01 01:00:00]}
-      ]
-      |> Enum.map(&ExistingTimer.to_api/1)
+    existing = [
+      pending |> Enum.at(0) |> PendingTimer.to_existing(1),
+      pending |> Enum.at(1) |> PendingTimer.to_existing(2),
+      DataFactory.timer(id: 3)
+    ]
 
     TimerManager.push(pid, pending)
     assert_receive {Porsche, :emobility, pid, ref, {@vin, @model}}
@@ -162,18 +162,20 @@ defmodule TayCalendar.TimerManagerTest do
   end
 
   defp emobility_response(timers) do
-    %{
-      :no_stats => true,
-      "timers" => timers
+    %Emobility{
+      timers: timers
     }
+    |> Map.put(:no_stats, true)
   end
 
-  defp to_naive_seconds(dt) do
-    {secs, 0} =
-      dt
-      |> DateTime.to_naive()
-      |> NaiveDateTime.to_gregorian_seconds()
-
+  defp to_naive_seconds(%NaiveDateTime{} = ndt) do
+    {secs, 0} = NaiveDateTime.to_gregorian_seconds(ndt)
     secs
+  end
+
+  defp to_naive_seconds(%DateTime{} = dt) do
+    dt
+    |> DateTime.to_naive()
+    |> to_naive_seconds()
   end
 end

@@ -3,6 +3,10 @@ defmodule TayCalendar.Stats do
 
   @prefix "taycal"
 
+  alias PorscheConnEx.Struct.Emobility
+  alias PorscheConnEx.Struct.Emobility.ChargeStatus
+  alias PorscheConnEx.Struct.Emobility.DirectClimate
+
   def child_spec(opts) do
     opts = Keyword.put(opts, :name, __MODULE__)
     %{id: __MODULE__, start: {DogStatsd, :start_link, [%{}, opts]}}
@@ -10,32 +14,31 @@ defmodule TayCalendar.Stats do
 
   def put_emobility(%{no_stats: true}), do: :noop
 
-  def put_emobility(json) do
+  def put_emobility(%Emobility{} = emob) do
     [
-      json |> Map.fetch!("batteryChargeStatus") |> battery_stats(),
-      json |> Map.fetch!("directClimatisation") |> climate_stats(),
-      json |> try_parse_emobility()
+      emob.charging |> charge_stats(),
+      emob.direct_climate |> climate_stats()
     ]
     |> Enum.reduce(&Map.merge/2)
     |> record_stats()
   end
 
-  defp battery_stats(%{
-         "stateOfChargeInPercentage" => charge_percent,
-         "chargingMode" => charge_mode,
-         "chargingPower" => charge_rate,
-         "remainingERange" => %{"valueInKilometers" => range_km},
-         "remainingChargeTimeUntil100PercentInMinutes" => charge_full_mins
+  defp charge_stats(%ChargeStatus{
+         percent: percent,
+         mode: mode,
+         kilowatts: rate_kw,
+         remaining_electric_range: %{km: range_km},
+         minutes_to_full: full_mins
        }) do
     %{
-      "battery.charge.percent" => charge_percent,
-      "battery.charge.rate" => if(charge_mode == "OFF", do: 0, else: charge_rate),
-      "battery.charge.full.minutes" => charge_full_mins || 0,
+      "battery.charge.percent" => percent,
+      "battery.charge.rate" => if(mode == "OFF", do: 0, else: rate_kw),
+      "battery.charge.full.minutes" => full_mins || 0,
       "battery.range.km" => range_km
     }
   end
 
-  defp climate_stats(%{"remainingClimatisationTime" => mins}) do
+  defp climate_stats(%DirectClimate{remaining_minutes: mins}) do
     %{"climate.minutes.left" => mins || 0}
   end
 
@@ -47,24 +50,5 @@ defmodule TayCalendar.Stats do
         batch.gauge(__MODULE__, "#{@prefix}.#{key}", value)
       end)
     end)
-  end
-
-  defp try_parse_emobility(json) do
-    case PorscheConnEx.Struct.Emobility.load(json) do
-      {:ok, _} ->
-        Logger.info("Emobility parsed successfully.")
-        %{"emobility.parse.success" => 1}
-
-      err ->
-        timestamp = DateTime.utc_now() |> DateTime.to_unix(:microsecond)
-        filename = "/tmp/taycal/#{timestamp}.exs"
-
-        case File.write(filename, {json, err} |> inspect(pretty: true)) do
-          :ok -> Logger.warning("Got error parsing emobility, logged to #{filename}.")
-          {:error, e} -> Logger.error("Got #{inspect(e)} writing to #{filename}.")
-        end
-
-        %{"emobility.parse.success" => 0}
-    end
   end
 end

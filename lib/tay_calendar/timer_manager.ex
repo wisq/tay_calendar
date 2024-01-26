@@ -3,8 +3,9 @@ defmodule TayCalendar.TimerManager do
   use GenServer
 
   alias TayCalendar.Porsche
-  alias TayCalendar.{ExistingTimer, PendingTimer}
+  alias TayCalendar.{PendingTimer, TimerUtils}
   alias TayCalendar.{Stats, OffPeakCharger}
+  alias PorscheConnEx.Struct.Emobility.Timer
 
   defmodule Config do
     @enforce_keys [:session, :vin, :model]
@@ -50,7 +51,7 @@ defmodule TayCalendar.TimerManager do
       }
     end
 
-    def existing(id, %ExistingTimer{repeating: true} = timer, _priority) do
+    def existing(id, %Timer{repeating?: true} = timer, _priority) do
       %Slot{
         id: id,
         timer: timer,
@@ -60,7 +61,7 @@ defmodule TayCalendar.TimerManager do
       }
     end
 
-    def existing(id, %ExistingTimer{repeating: false} = timer, priority) do
+    def existing(id, %Timer{repeating?: false} = timer, priority) do
       %Slot{
         id: id,
         timer: timer,
@@ -86,7 +87,7 @@ defmodule TayCalendar.TimerManager do
     def sort_key(%Slot{priority: prio, id: id}), do: {-prio, id}
 
     def describe_timer(%Slot{timer: nil}), do: "(nil)"
-    def describe_timer(%Slot{timer: timer}), do: ExistingTimer.describe(timer)
+    def describe_timer(%Slot{timer: timer}), do: TimerUtils.describe(timer)
   end
 
   def start_link(opts) do
@@ -158,14 +159,10 @@ defmodule TayCalendar.TimerManager do
   end
 
   defp existing_timers(config) do
-    with {:ok, body} <- Porsche.emobility(config.session, config.vin, config.model) do
-      Stats.put_emobility(body)
-      OffPeakCharger.put_emobility(config.off_peak_charger, body)
-
-      case Map.fetch(body, "timers") do
-        {:ok, timers} when is_list(timers) -> {:ok, timers |> Enum.map(&ExistingTimer.from_api/1)}
-        :error -> {:error, :timers_unavailable}
-      end
+    with {:ok, emob} <- Porsche.emobility(config.session, config.vin, config.model) do
+      Stats.put_emobility(emob)
+      OffPeakCharger.put_emobility(config.off_peak_charger, emob)
+      {:ok, emob.timers}
     end
   end
 
@@ -174,7 +171,7 @@ defmodule TayCalendar.TimerManager do
   defp describe_existing_timers(timers) do
     timers
     |> Enum.map(fn t ->
-      "\n  - ##{t.id}: #{ExistingTimer.describe(t)}"
+      "\n  - ##{t.id}: #{TimerUtils.describe(t)}"
     end)
     |> Enum.join()
   end
@@ -227,7 +224,7 @@ defmodule TayCalendar.TimerManager do
 
   defp update_slot(%Slot{action: :replace} = slot, config) do
     Logger.info("Replacing ##{slot.id} with #{Slot.describe_timer(slot)} ...")
-    api_timer = slot.timer |> ExistingTimer.to_api()
+    api_timer = slot.timer
 
     case Porsche.put_timer(config.session, config.vin, config.model, api_timer) do
       {:ok, _} ->

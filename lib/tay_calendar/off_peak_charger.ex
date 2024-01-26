@@ -3,6 +3,9 @@ defmodule TayCalendar.OffPeakCharger do
   use GenServer
 
   alias TayCalendar.OffPeakCharger.Hours
+  alias PorscheConnEx.Struct.Emobility
+  alias PorscheConnEx.Struct.Emobility.ChargingProfile
+  alias PorscheConnEx.Struct.Emobility.ChargingProfile.ChargingOptions
 
   @prefix "[#{inspect(__MODULE__)}]"
 
@@ -49,43 +52,49 @@ defmodule TayCalendar.OffPeakCharger do
   end
 
   @impl true
-  def handle_cast({:emobility, json}, %Config{} = config) do
-    with {:ok, charge} <- charge_percent(json) do
-      cond do
-        charge >= config.minimum_charge_off_peak ->
-          Logger.info("#{@prefix} Charge is #{charge}%, no charging needed.")
-          config.minimum_charge_on_peak
+  def handle_cast({:emobility, %Emobility{} = emob}, %Config{} = config) do
+    charge = emob.charging.percent
 
-        Hours.is_off_peak?(config.off_peak_hours, config.timezone) ->
-          Logger.info("#{@prefix} Charge is #{charge}%, and we're in off-peak hours.")
-          config.minimum_charge_off_peak
+    cond do
+      charge >= config.minimum_charge_off_peak ->
+        Logger.info("#{@prefix} Charge is #{charge}%, no charging needed.")
+        config.minimum_charge_on_peak
 
-        true ->
-          Logger.info("#{@prefix} Charge is #{charge}%, but we're not in off-peak hours.")
-          config.minimum_charge_on_peak
-      end
-      |> apply_profile_minimum(json, config)
+      Hours.is_off_peak?(config.off_peak_hours, config.timezone) ->
+        Logger.info("#{@prefix} Charge is #{charge}%, and we're in off-peak hours.")
+        config.minimum_charge_off_peak
+
+      true ->
+        Logger.info("#{@prefix} Charge is #{charge}%, but we're not in off-peak hours.")
+        config.minimum_charge_on_peak
     end
+    |> apply_profile_minimum(emob, config)
 
     {:noreply, config}
   end
 
-  defp charge_percent(%{"batteryChargeStatus" => %{"stateOfChargeInPercentage" => charge}}) do
-    {:ok, charge}
-  end
-
-  defp apply_profile_minimum(wanted, json, config) do
-    with {:ok, profile} = find_profile(json, config.profile_name) do
-      %{"profileName" => name, "chargingOptions" => %{"minimumChargeLevel" => actual}} = profile
+  defp apply_profile_minimum(wanted, emob, config) do
+    with {:ok, %ChargingProfile{} = profile} =
+           find_profile(emob.charging_profiles, config.profile_name) do
+      name = profile.name
+      actual = profile.charging.minimum_charge
 
       if wanted != actual do
         Logger.info(
           "#{@prefix} Changing \"#{name}\" minimum charge from #{actual} to #{wanted} ..."
         )
 
-        profile = put_in(profile, ["chargingOptions", "minimumChargeLevel"], wanted)
+        profile = %ChargingProfile{
+          profile
+          | charging: %ChargingOptions{profile.charging | minimum_charge: wanted}
+        }
 
-        PorscheConnEx.Client.put_profile(config.session, config.vin, config.model, profile)
+        PorscheConnEx.Client.put_charging_profile(
+          config.session,
+          config.vin,
+          config.model,
+          profile
+        )
         |> then(fn
           {:ok, _} -> Logger.info("#{@prefix} Profile \"#{name}\" updated.")
           err -> Logger.error("#{@prefix} Error updating profile \"#{name}\": #{inspect(err)}")
@@ -94,10 +103,12 @@ defmodule TayCalendar.OffPeakCharger do
     end
   end
 
-  defp find_profile(%{"chargingProfiles" => %{"profiles" => profiles}}, name) do
+  defp find_profile(profiles, name) do
+    match = String.downcase(name)
+
     profiles
-    |> Enum.find(fn %{"profileName" => n} ->
-      String.downcase(n) == String.downcase(name)
+    |> Enum.find(fn %{name: n} ->
+      String.downcase(n) == match
     end)
     |> then(fn
       %{} = profile -> {:ok, profile}

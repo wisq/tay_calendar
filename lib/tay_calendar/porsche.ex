@@ -2,7 +2,7 @@ defmodule TayCalendar.Porsche do
   alias PorscheConnEx.Client
 
   def emobility({:mock, pid}, vin, model), do: mock(pid, :emobility, {vin, model})
-  def emobility(session, vin, model), do: Client.emobility_raw(session, vin, model)
+  def emobility(session, vin, model), do: Client.emobility(session, vin, model)
 
   def delete_timer({:mock, pid}, vin, model, id), do: mock(pid, :delete_timer, {vin, model, id})
   def delete_timer(session, vin, model, id), do: Client.delete_timer(session, vin, model, id)
