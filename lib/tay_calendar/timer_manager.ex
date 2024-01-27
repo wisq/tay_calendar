@@ -229,7 +229,7 @@ defmodule TayCalendar.TimerManager do
 
     case Porsche.put_timer(config.session, config.vin, config.model, api_timer) do
       {:ok, _} ->
-        Logger.info("Slot ##{slot.id} replaced.")
+        Logger.info("Slot ##{slot.id} replacement queued.")
         :ok
 
       {:error, err} ->
@@ -243,7 +243,7 @@ defmodule TayCalendar.TimerManager do
 
     case Porsche.delete_timer(config.session, config.vin, config.model, slot.id) do
       {:ok, _} ->
-        Logger.info("Slot ##{slot.id} deleted.")
+        Logger.info("Slot ##{slot.id} deletion queued.")
         :ok
 
       {:error, err} ->

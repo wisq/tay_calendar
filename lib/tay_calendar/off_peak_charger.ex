@@ -89,16 +89,15 @@ defmodule TayCalendar.OffPeakCharger do
           | charging: %ChargingOptions{profile.charging | minimum_charge: wanted}
         }
 
-        PorscheConnEx.Client.put_charging_profile(
-          config.session,
-          config.vin,
-          config.model,
-          profile
-        )
-        |> then(fn
-          {:ok, _} -> Logger.info("#{@prefix} Profile \"#{name}\" updated.")
+        case PorscheConnEx.Client.put_charging_profile(
+               config.session,
+               config.vin,
+               config.model,
+               profile
+             ) do
+          {:ok, _} -> Logger.info("#{@prefix} Profile \"#{name}\" update queued.")
           err -> Logger.error("#{@prefix} Error updating profile \"#{name}\": #{inspect(err)}")
-        end)
+        end
       end
     end
   end
