@@ -140,7 +140,7 @@ defmodule TayCalendar.TimerManagerTest do
     existing = [
       pending |> Enum.at(0) |> PendingTimer.to_existing(1),
       pending |> Enum.at(1) |> PendingTimer.to_existing(2),
-      DataFactory.timer(id: 3)
+      DataFactory.timer(id: 3, repeating?: false)
     ]
 
     TimerManager.push(pid, pending)
