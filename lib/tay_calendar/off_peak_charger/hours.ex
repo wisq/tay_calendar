@@ -19,6 +19,7 @@ defmodule TayCalendar.OffPeakCharger.Hours do
   defp day_matches?(:sunday, dow), do: dow == 7
   defp day_matches?(:weekdays, dow), do: dow in 1..5
   defp day_matches?(:weekends, dow), do: dow in 6..7
+  defp day_matches?(:every_day, dow), do: dow in 1..7
 
   defp within_times?(_, :all_day), do: true
 

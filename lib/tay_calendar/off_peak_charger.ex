@@ -3,6 +3,7 @@ defmodule TayCalendar.OffPeakCharger do
   use GenServer
 
   alias TayCalendar.OffPeakCharger.Hours
+  alias TayCalendar.Porsche
   alias PorscheConnEx.Struct.Emobility
   alias PorscheConnEx.Struct.Emobility.ChargingProfile
   alias PorscheConnEx.Struct.Emobility.ChargingProfile.ChargingOptions
@@ -89,7 +90,7 @@ defmodule TayCalendar.OffPeakCharger do
           | charging: %ChargingOptions{profile.charging | minimum_charge: wanted}
         }
 
-        case PorscheConnEx.Client.put_charging_profile(
+        case Porsche.put_charging_profile(
                config.session,
                config.vin,
                config.model,

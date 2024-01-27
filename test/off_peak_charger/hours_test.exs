@@ -1,7 +1,7 @@
 defmodule TayCalendar.OffPeakCharger.HoursTest do
   use ExUnit.Case, async: true
 
-  alias TayCalendar.OffPeakCharger.Hours, as: Hours
+  alias TayCalendar.OffPeakCharger.Hours
   alias TayCalendar.Test.DataFactory.Time, as: TimeFactory
 
   test "peak hours with daytime peak hours" do
@@ -79,6 +79,22 @@ defmodule TayCalendar.OffPeakCharger.HoursTest do
              2 => [],
              6 => ^all_hours,
              7 => ^all_hours
+           } = hours_by_day(hours)
+  end
+
+  test "peak hours every day" do
+    hours = [
+      every_day: {~T[05:00:00], ~T[07:00:00]}
+    ]
+
+    assert %{
+             1 => [5, 6],
+             2 => [5, 6],
+             3 => [5, 6],
+             4 => [5, 6],
+             5 => [5, 6],
+             6 => [5, 6],
+             7 => [5, 6]
            } = hours_by_day(hours)
   end
 

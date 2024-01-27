@@ -10,6 +10,12 @@ defmodule TayCalendar.Porsche do
   def put_timer({:mock, pid}, vin, model, timer), do: mock(pid, :put_timer, {vin, model, timer})
   def put_timer(session, vin, model, timer), do: Client.put_timer(session, vin, model, timer)
 
+  def put_charging_profile({:mock, pid}, vin, model, profile),
+    do: mock(pid, :put_charging_profile, {vin, model, profile})
+
+  def put_charging_profile(session, vin, model, profile),
+    do: Client.put_charging_profile(session, vin, model, profile)
+
   defp mock(pid, function, args) do
     ref = make_ref()
     send(pid, {__MODULE__, function, self(), ref, args})

@@ -88,6 +88,7 @@ defmodule TayCalendar.TimerManagerTest do
     assert params == existing |> Enum.at(0)
     send(pid, {Porsche, ref, {:ok, true}})
 
+    # No further updates.
     refute_receive {Porsche, _, _, _, _}
   end
 
