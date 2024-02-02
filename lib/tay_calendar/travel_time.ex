@@ -2,73 +2,46 @@ defmodule TayCalendar.TravelTime do
   require Logger
   use GenServer
 
-  @prefix "[#{inspect(__MODULE__)}]"
+  alias TayCalendar.Google.Event
+  alias TayCalendar.Google.XFields
 
-  # The Google Distance Matrix API only uses arrival_time for transit, not for driving.
-  #
-  # To work around this, we'll start by assuming departure time = arrival time,
-  # then pick a new departure time based on how long that trip will take.
-  #
-  # We'll try up to `@max_passes` to get this right, but we'll stop if the current pass
-  # return a result that is less than `@pass_max_delta` seconds difference than
-  # the previous pass.
-  @max_passes 5
-  @pass_max_delta 60
+  @prefix "[#{inspect(__MODULE__)}]"
+  @server_url "https://apidata.googleusercontent.com"
   # Clean cache every hour.
   @cleanup_timer 3_600_000
 
   defmodule Entry do
-    @enforce_keys [:origin, :destination, :arrival_time, :departure_time, :fetched_at]
+    @enforce_keys [:etag, :start_time, :duration]
     defstruct(@enforce_keys)
 
-    # Refresh travel time one hour prior to departure.
-    @refresh_before_depart 3_600
-
-    def new(params) do
-      params
-      |> Keyword.put(:fetched_at, DateTime.utc_now())
-      |> then(&struct!(__MODULE__, &1))
-    end
-
-    def is_expired?(%Entry{arrival_time: time}, now) do
+    def is_expired?(%Entry{start_time: time}, now) do
       DateTime.compare(time, now) == :lt
-    end
-
-    def needs_refresh?(%Entry{departure_time: depart, fetched_at: fetched}) do
-      cutoff = depart |> DateTime.add(-@refresh_before_depart, :second)
-
-      cond do
-        DateTime.compare(fetched, cutoff) == :gt ->
-          # Entry was fetched after the cutoff, meaning it's already refreshed.
-          false
-
-        DateTime.compare(DateTime.utc_now(), cutoff) == :gt ->
-          # It's now after the cutoff, so we should refresh.
-          true
-
-        true ->
-          # It's not the cutoff yet, so no refresh needed.
-          false
-      end
-    end
-
-    def refresh(%Entry{} = entry, departure_time) do
-      %Entry{entry | departure_time: departure_time, fetched_at: DateTime.utc_now()}
     end
   end
 
   defmodule Cache do
+    @prefix "[#{inspect(__MODULE__)}]"
+
     def new, do: %{}
 
-    def fetch(cache, origin, destination, arrival_time) do
-      Map.fetch(cache, {origin, destination, arrival_time})
+    def fetch(cache, calendar_id, event_uid, etag) do
+      key = cache_key(calendar_id, event_uid)
+
+      case Map.fetch(cache, key) do
+        {:ok, %Entry{etag: ^etag, duration: duration}} ->
+          {:ok, duration}
+
+        {:ok, %Entry{}} ->
+          Logger.debug("#{@prefix} Etag has changed, cache entry is invalid.")
+          :error
+
+        :error ->
+          :error
+      end
     end
 
-    def put(
-          cache,
-          %Entry{origin: origin, destination: destination, arrival_time: arrival_time} = entry
-        ) do
-      key = {origin, destination, arrival_time}
+    def put(cache, calendar_id, event_uid, %Entry{} = entry) do
+      key = cache_key(calendar_id, event_uid)
       Map.put(cache, key, entry)
     end
 
@@ -83,147 +56,121 @@ defmodule TayCalendar.TravelTime do
 
       {Enum.count(discard), keep}
     end
+
+    defp cache_key(calendar_id, event_uid), do: {calendar_id, event_uid}
+  end
+
+  defmodule State do
+    @enforce_keys [:goth]
+    defstruct(
+      goth: nil,
+      cache: Cache.new()
+    )
   end
 
   def start_link(opts) do
-    GenServer.start_link(__MODULE__, nil, opts)
+    {goth, opts} = Keyword.pop!(opts, :goth)
+    GenServer.start_link(__MODULE__, goth, opts)
   end
 
-  def get(pid, origin, destination, %DateTime{} = arrival_time)
-      when is_binary(origin) and is_binary(destination) do
-    if in_past?(arrival_time) do
-      {:error, :arrival_time_in_past}
-    else
-      GenServer.call(pid, {:get, origin, destination, arrival_time})
-    end
+  def get(pid, %Event{
+        calendar_id: calendar_id,
+        ical_uid: event_uid,
+        etag: etag,
+        start_time: start_time
+      }) do
+    GenServer.call(pid, {:get, calendar_id, event_uid, etag, start_time})
   end
 
   @impl true
-  def init(nil) do
+  def init(goth) do
     Process.send_after(self(), :cleanup, @cleanup_timer)
-    {:ok, Cache.new()}
+    {:ok, %State{goth: goth}}
   end
 
   @impl true
-  def handle_call({:get, origin, destination, arrival_time}, _from, cache) do
-    route = fn ->
-      "#{inspect(origin)} to #{inspect(destination)} at #{arrival_time}"
-    end
+  def handle_call({:get, calendar_id, event_uid, etag, start_time}, _from, state) do
+    case Cache.fetch(state.cache, calendar_id, event_uid, etag) do
+      {:ok, duration} ->
+        Logger.debug(
+          "#{@prefix} Found travel time #{inspect(duration)} in cache for #{event_uid}."
+        )
 
-    case Cache.fetch(cache, origin, destination, arrival_time) do
-      {:ok, %Entry{} = entry} ->
-        time = entry.departure_time
-        Logger.debug("#{@prefix} Found departure time #{time} in cache for #{route.()}.")
-
-        if Entry.needs_refresh?(entry) do
-          Logger.info("#{@prefix} Refreshing departure time for #{route.()} ...")
-
-          case refresh_depart_time(entry) do
-            {:ok, new_entry} ->
-              time1 = entry.departure_time
-              time2 = new_entry.departure_time
-              Logger.info("#{@prefix} Refreshed time: #{time1} => #{time2}")
-              {:reply, {:ok, time2}, Cache.put(cache, entry)}
-
-            {:error, _} = err ->
-              Logger.error("#{@prefix} Error refreshing: #{inspect(err)}")
-              {:reply, {:ok, entry.departure_time}, cache}
-          end
-        else
-          {:reply, {:ok, time}, cache}
-        end
+        {:reply, {:ok, duration}, state}
 
       :error ->
-        Logger.info("#{@prefix} Fetching departure time for #{route.()} ...")
+        Logger.debug("#{@prefix} Fetching travel time for #{event_uid} ...")
 
-        case get_depart_time(origin, destination, arrival_time) do
-          {:ok, entry} ->
-            time = entry.departure_time
-            Logger.info("#{@prefix} Retrieved departure time #{time}.")
-            {:reply, {:ok, time}, Cache.put(cache, entry)}
+        case get_travel_time(state.goth, calendar_id, event_uid) do
+          {:ok, duration} ->
+            Logger.info("#{@prefix} Found travel time: #{inspect(duration)}")
+            entry = %Entry{duration: duration, etag: etag, start_time: start_time}
+            cache = Cache.put(state.cache, calendar_id, event_uid, entry)
+            {:reply, {:ok, duration}, %State{state | cache: cache}}
 
-          :error ->
-            {:reply, :error, cache}
+          {:error, _} = err ->
+            {:reply, err, state}
         end
     end
   end
 
   @impl true
-  def handle_info(:cleanup, cache) do
-    {count, cache} = Cache.cleanup(cache)
+  def handle_info(:cleanup, state) do
+    {count, cache} = Cache.cleanup(state.cache)
     Logger.info("#{@prefix} Expired #{count} entries from cache.")
     Process.send_after(self(), :cleanup, @cleanup_timer)
-    {:noreply, cache}
+    {:noreply, %State{state | cache: cache}}
   end
 
-  defp get_depart_time(origin, destination, arrival_time) do
-    1..@max_passes
-    |> Enum.reduce_while(arrival_time, fn passno, time ->
-      case query(origin, destination, time) do
-        {:ok, secs} ->
-          new_time = arrival_time |> DateTime.add(-secs, :second)
-          Logger.debug("#{@prefix} Pass ##{passno}: #{secs} seconds")
+  defp get_travel_time(goth, calendar_id, event_uid) do
+    url = event_url(calendar_id, event_uid)
 
-          cond do
-            in_past?(new_time) ->
-              Logger.warning("Departure time is in the past: #{new_time}")
-              {:halt, new_time}
+    # We ignore CalDAV's etag because it's different than the JSON API's etag.
+    #
+    # This is fine because, in the rare case that the event has changed
+    # inbetween when the JSON API retrieves it and when we retrieve it, we'll
+    # have the more up-to-date data anyway.
+    #
+    # The next time the scheduler refreshes, it'll pick up the new etag, ask us
+    # about it, and we'll refresh the cache.  It's a needless refresh, but it
+    # won't do any harm.
+    with {:ok, client} <- caldav_client(goth),
+         {:ok, ical, _etag} <- CalDAVClient.Event.get(client, url) do
+      xfields =
+        ical
+        |> XFields.parse()
+        |> XFields.as_map()
 
-            time_delta(time, new_time) < @pass_max_delta ->
-              {:halt, new_time}
+      case Map.fetch(xfields, "X-APPLE-TRAVEL-DURATION") do
+        {:ok, %XFields.Property{value: value}} ->
+          case Timex.Parse.Duration.Parsers.ISO8601Parser.parse(value) do
+            {:ok, duration} ->
+              {:ok, duration}
 
-            true ->
-              {:cont, new_time}
+            {:error, err} ->
+              Logger.error("Failed to parse duration #{inspect(value)}: #{err}")
+              # Cache duration as nil, because it's not going to get better.
+              {:ok, nil}
           end
 
-        {:error, err} ->
-          Logger.error("#{@prefix} Pass ##{passno}: failed!  #{inspect(err)}")
-          {:halt, :error}
+        :error ->
+          # Cache duration as nil, because it's not going to get better.
+          {:ok, nil}
       end
-    end)
-    |> then(fn
-      %DateTime{} = departure_time ->
-        {:ok,
-         Entry.new(
-           origin: origin,
-           destination: destination,
-           arrival_time: arrival_time,
-           departure_time: departure_time
-         )}
-
-      :error ->
-        :error
-    end)
-  end
-
-  defp refresh_depart_time(%Entry{} = entry) do
-    # Unlike above, we refresh using a single-pass query.
-    # We already have a pretty good grasp on the departure time,
-    # and we're just refining it at this point.
-    case query(entry.origin, entry.destination, entry.departure_time) do
-      {:ok, secs} ->
-        new_time = entry.arrival_time |> DateTime.add(-secs, :second)
-        {:ok, Entry.refresh(entry, new_time)}
-
-      {:error, _} = err ->
-        err
     end
   end
 
-  defp query(origin, destination, time) do
-    case GoogleMaps.distance(origin, destination, departure_time: DateTime.to_unix(time)) do
-      {:ok, %{"rows" => [%{"elements" => [%{"duration_in_traffic" => %{"value" => secs}}]}]}} ->
-        {:ok, secs}
+  defp caldav_client(goth) do
+    with {:ok, token} <- Goth.fetch(goth) do
+      {:ok,
+       %CalDAVClient.Client{
+         auth: %CalDAVClient.Auth.Bearer{token: token.token},
+         server_url: @server_url
+       }}
     end
   end
 
-  defp in_past?(time) do
-    # Add a bit of margin to account for possible request latency.
-    cutoff = DateTime.utc_now() |> DateTime.add(15, :second)
-    DateTime.compare(time, cutoff) == :lt
-  end
-
-  defp time_delta(t1, t2) do
-    abs(DateTime.to_unix(t1) - DateTime.to_unix(t2))
+  defp event_url(calendar_id, event_uid) do
+    "#{@server_url}/caldav/v2/#{calendar_id}/events/#{event_uid}.ics"
   end
 end

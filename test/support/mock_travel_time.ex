@@ -12,16 +12,17 @@ defmodule TayCalendar.Test.MockTravelTime do
   end
 
   @impl true
-  def handle_call({:get, origin, destination, arrival_time}, _from, pid) do
+  def handle_call({:get, calendar_id, event_uid, etag, start_time}, _from, pid) do
     ref = make_ref()
 
     send(
       pid,
       {__MODULE__, self(), ref,
        %{
-         origin: origin,
-         destination: destination,
-         arrival_time: arrival_time
+         calendar_id: calendar_id,
+         event_uid: event_uid,
+         etag: etag,
+         start_time: start_time
        }}
     )
 

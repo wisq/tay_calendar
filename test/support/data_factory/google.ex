@@ -1,20 +1,15 @@
 defmodule TayCalendar.Test.DataFactory.Google do
-  alias TayCalendar.Google.{Calendar, Event}
+  alias TayCalendar.Google.Event
   alias TayCalendar.Test.DataFactory.Time, as: TimeFactory
 
   @calendar_id_template "c_########@group.calendar.google.com"
   @event_id_template "_########"
+  @ical_uid_template "########-####-####-####-############"
+  @etag_template "\"################\""
+
+  @digit ?0..?9
   @hex [?0..?9, ?a..?f] |> Enum.flat_map(&Enum.to_list/1)
   @alphabet ?a..?z
-
-  def calendar(attrs \\ []) do
-    %Calendar{
-      id: generate_calendar_id(),
-      name: generate_name(),
-      description: generate_description()
-    }
-    |> struct!(attrs)
-  end
 
   def event(attrs \\ []) do
     {timing, attrs} = Keyword.pop(attrs, :timing, :future)
@@ -26,7 +21,10 @@ defmodule TayCalendar.Test.DataFactory.Google do
       location: maybe(&generate_location/0),
       description: maybe(&generate_description/0),
       start_time: start_time,
-      end_time: end_time
+      end_time: end_time,
+      calendar_id: generate_calendar_id(),
+      ical_uid: generate_ical_uid(),
+      etag: generate_etag()
     }
     |> struct!(attrs)
   end
@@ -39,12 +37,20 @@ defmodule TayCalendar.Test.DataFactory.Google do
     end
   end
 
-  defp generate_calendar_id do
+  def generate_calendar_id do
     @calendar_id_template |> String.replace("#", fn _ -> Enum.random(@hex) end)
   end
 
   defp generate_event_id do
     @event_id_template |> String.replace("#", fn _ -> Enum.random(@hex) end)
+  end
+
+  defp generate_ical_uid do
+    @ical_uid_template |> String.replace("#", fn _ -> Enum.random(@hex) end)
+  end
+
+  defp generate_etag do
+    @etag_template |> String.replace("#", fn _ -> Enum.random(@digit) end)
   end
 
   defp generate_name, do: Enum.random(10..20) |> generate_alpha()

@@ -4,11 +4,6 @@ defmodule TayCalendar do
 
   alias TayCalendar.Secrets
 
-  @scopes [
-    "https://www.googleapis.com/auth/calendar.readonly",
-    "https://www.googleapis.com/auth/calendar.events.readonly"
-  ]
-
   def start(_type, _args) do
     children =
       if Application.get_env(:tay_calendar, :start, true) do
@@ -23,14 +18,9 @@ defmodule TayCalendar do
 
   defp app_children do
     [
-      {TayCalendar.TravelTime, name: TayCalendar.Supervisor.TravelTime},
-      {Goth,
-       name: TayCalendar.Supervisor.Goth,
-       source: {
-         :service_account,
-         read_credentials(),
-         scopes: @scopes
-       }},
+      {Goth, name: TayCalendar.Supervisor.Goth, source: {:refresh_token, read_credentials(), []}},
+      {TayCalendar.TravelTime,
+       name: TayCalendar.Supervisor.TravelTime, goth: TayCalendar.Supervisor.Goth},
       {PorscheConnEx.Session,
        name: TayCalendar.Supervisor.PorscheSession,
        credentials: [
@@ -62,7 +52,7 @@ defmodule TayCalendar do
          goth: TayCalendar.Supervisor.Goth,
          timer_manager: TayCalendar.Supervisor.TimerManager,
          travel_time: TayCalendar.Supervisor.TravelTime,
-         garage: Secrets.get("GARAGE_LOCATION"),
+         calendar_ids: read_calendar_ids(),
          event_defaults: Application.fetch_env!(:tay_calendar, :event_defaults)
        ]}
     ]
@@ -72,6 +62,14 @@ defmodule TayCalendar do
     System.get_env("GOOGLE_AUTH_FILE", priv("credentials.json"))
     |> File.read!()
     |> Jason.decode!()
+    |> Map.fetch!("web")
+  end
+
+  def read_calendar_ids do
+    System.get_env("GOOGLE_CALENDAR_IDS_FILE", priv("calendar_ids.txt"))
+    |> File.read!()
+    |> String.trim()
+    |> String.split("\n")
   end
 
   defp priv(file) do

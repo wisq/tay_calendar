@@ -5,7 +5,17 @@ defmodule TayCalendar.Google.Event do
 
   alias TayCalendar.Google.API
 
-  @enforce_keys [:id, :name, :description, :location, :start_time, :end_time]
+  @enforce_keys [
+    :id,
+    :name,
+    :description,
+    :location,
+    :start_time,
+    :end_time,
+    :calendar_id,
+    :ical_uid,
+    :etag
+  ]
   defstruct(@enforce_keys)
 
   def list(goth, calendar_id, params \\ []) do
@@ -19,7 +29,7 @@ defmodule TayCalendar.Google.Event do
              url: list_url(calendar_id),
              params: params
            ) do
-      {:ok, items |> Enum.map(&from_json/1)}
+      {:ok, items |> Enum.map(&from_json(&1, calendar_id))}
     end
   end
 
@@ -28,8 +38,11 @@ defmodule TayCalendar.Google.Event do
            "id" => id,
            "summary" => name,
            "start" => start_time,
-           "end" => end_time
-         } = event
+           "end" => end_time,
+           "iCalUID" => ical_uid,
+           "etag" => etag
+         } = event,
+         calendar_id
        ) do
     %__MODULE__{
       id: id,
@@ -37,7 +50,10 @@ defmodule TayCalendar.Google.Event do
       location: event |> Map.get("location"),
       description: event |> Map.get("description"),
       start_time: start_time |> parse_time(),
-      end_time: end_time |> parse_time()
+      end_time: end_time |> parse_time(),
+      calendar_id: calendar_id,
+      ical_uid: ical_uid,
+      etag: etag
     }
   end
 

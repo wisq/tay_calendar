@@ -7,104 +7,33 @@ defmodule TayCalendar.SchedulerTest do
   alias TayCalendar.Test.DataFactory.Google, as: Factory
   alias TayCalendar.Test.{MockTimerManager, MockTravelTime}
 
-  test "retrieves calendar list from Google" do
-    {:ok, _} = start_scheduler()
-
-    assert_receive {Google, _pid, _ref, request}
-    url = URI.to_string(request.url)
-    assert url == "https://www.googleapis.com/calendar/v3/users/me/calendarList"
-  end
-
   test "retrieves calendar events from Google" do
-    {:ok, _} = start_scheduler()
+    calendar_ids =
+      1..Enum.random(1..5)
+      |> Enum.map(fn _ -> Factory.generate_calendar_id() end)
 
-    assert_receive {Google, pid, ref, _}
-    calendars = 1..Enum.random(1..5) |> Enum.map(fn _ -> Factory.calendar() end)
-    send(pid, {Google, ref, {:ok, calendars}})
+    {:ok, _} = start_scheduler(calendar_ids: calendar_ids)
 
-    calendars
-    # Scheduler sorts calendars by ID.
-    |> Enum.sort_by(& &1.id)
-    |> Enum.each(fn calendar ->
+    calendar_ids
+    |> Enum.each(fn cal_id ->
       assert_receive {Google, pid, ref, request}
       url = URI.to_string(request.url)
-      assert url == "https://www.googleapis.com/calendar/v3/calendars/#{calendar.id}/events"
+      assert url == "https://www.googleapis.com/calendar/v3/calendars/#{cal_id}/events"
 
-      events = 1..Enum.random(1..5) |> Enum.map(fn _ -> Factory.event() end)
+      events = 1..Enum.random(1..5) |> Enum.map(fn _ -> Factory.event(calendar_id: cal_id) end)
       send(pid, {Google, ref, {:ok, events}})
     end)
   end
 
-  test "refreshes calendars from Google" do
-    {:ok, _} = start_scheduler(calendars_interval: 1)
-
-    calendar = Factory.calendar()
-
-    # Scheduler retrieves calendar list:
-    assert_receive {Google, pid, ref, req}
-    assert req.url.path =~ ~r/calendarList$/
-    send(pid, {Google, ref, {:ok, [calendar]}})
-
-    # Scheduler retrieves events for calendar:
-    assert_receive {Google, pid, ref, req}
-    assert req.url.path =~ calendar.id
-    send(pid, {Google, ref, {:ok, []}})
-
-    for _ <- 1..3 do
-      # Scheduler retrieves new calendar list:
-      assert_receive {Google, pid, ref, req}
-      assert req.url.path =~ ~r/calendarList$/
-      send(pid, {Google, ref, {:ok, [calendar]}})
-      # Does NOT retrieve new events (until next event refresh).
-    end
-  end
-
   test "refreshes calendar events from Google" do
-    {:ok, _} = start_scheduler(events_interval: 1)
-
-    calendar = Factory.calendar()
-
-    # Scheduler retrieves calendar list:
-    assert_receive {Google, pid, ref, req}
-    assert req.url.path =~ ~r/calendarList$/
-    send(pid, {Google, ref, {:ok, [calendar]}})
+    calendar_id = Factory.generate_calendar_id()
+    {:ok, _} = start_scheduler(events_interval: 1, calendar_ids: [calendar_id])
 
     for _ <- 1..3 do
       # Scheduler retrieves events for calendar:
       assert_receive {Google, pid, ref, req}
-      assert req.url.path =~ calendar.id
+      assert req.url.path =~ calendar_id
       send(pid, {Google, ref, {:ok, []}})
-      # Does NOT retreieve new calendars (until next calendar refresh).
-    end
-  end
-
-  test "uses latest calendar ID(s) for events refresh" do
-    {:ok, _} = start_scheduler(calendars_interval: 1, events_interval: 1)
-
-    # Note: The `Process.sleep`s are important to ensure that events don't
-    # double up, causing sporadic hard-to-reproduce errors.
-    #
-    # This seems to be some sort of nondeterministic `Process.send_after`
-    # behaviour, possibly in conjunction with my message-passing-style mocking.
-
-    for _ <- 1..3 do
-      calendars = 1..Enum.random(0..3)//1 |> Enum.map(fn _ -> Factory.calendar() end)
-
-      # Scheduler retrieves calendar list:
-      assert_receive {Google, pid, ref, req}, 200
-      assert req.url.path =~ ~r/calendarList$/
-      Process.sleep(10)
-      send(pid, {Google, ref, {:ok, calendars}})
-
-      # Scheduler retrieves events for each calendar:
-      calendars
-      |> Enum.sort_by(& &1.id)
-      |> Enum.each(fn calendar ->
-        assert_receive {Google, pid, ref, req}, 200
-        assert req.url.path =~ calendar.id
-        Process.sleep(10)
-        send(pid, {Google, ref, {:ok, []}})
-      end)
     end
   end
 
@@ -128,9 +57,6 @@ defmodule TayCalendar.SchedulerTest do
       |> Map.new(fn timing ->
         {timing, Factory.event(timing: timing)}
       end)
-
-    assert_receive {Google, pid, ref, _}
-    send(pid, {Google, ref, {:ok, [Factory.calendar()]}})
 
     assert_receive {Google, pid, ref, _}
     send(pid, {Google, ref, {:ok, Map.values(events)}})
@@ -188,9 +114,6 @@ defmodule TayCalendar.SchedulerTest do
       |> Enum.sort_by(&DateTime.to_unix/1)
 
     assert_receive {Google, pid, ref, _}
-    send(pid, {Google, ref, {:ok, [Factory.calendar()]}})
-
-    assert_receive {Google, pid, ref, _}
     send(pid, {Google, ref, {:ok, events}})
 
     assert_receive {:timers, timers}
@@ -201,7 +124,6 @@ defmodule TayCalendar.SchedulerTest do
     {:ok, mock_tm} = start_timer_manager()
     {:ok, mock_travel} = start_travel_time()
 
-    garage = Factory.generate_location()
     pre_travel = Enum.random(1..1800)
     post_travel = Enum.random(1..1800)
     before_str = to_interval(post_travel) <> " + travel + " <> to_interval(pre_travel)
@@ -209,7 +131,6 @@ defmodule TayCalendar.SchedulerTest do
     {:ok, _} =
       start_scheduler(
         timer_manager: mock_tm,
-        garage: garage,
         travel_time: mock_travel,
         event_defaults: %{before: before_str}
       )
@@ -217,22 +138,25 @@ defmodule TayCalendar.SchedulerTest do
     event = Factory.event(location: Factory.generate_location())
 
     assert_receive {Google, pid, ref, _}
-    send(pid, {Google, ref, {:ok, [Factory.calendar()]}})
-
-    assert_receive {Google, pid, ref, _}
     send(pid, {Google, ref, {:ok, [event]}})
 
     assert_receive {MockTravelTime, pid, ref, request}
-    assert request.origin == garage
-    assert request.destination == event.location
-    assert request.arrival_time == event.start_time |> DateTime.add(-post_travel, :second)
+    assert request.calendar_id == event.calendar_id
+    assert request.event_uid == event.ical_uid
+    assert request.etag == event.etag
+    assert request.start_time == event.start_time
 
-    travel_secs = Enum.random(1..1800)
-    travel_depart = request.arrival_time |> DateTime.add(-travel_secs, :second)
-    send(pid, {MockTravelTime, ref, {:ok, travel_depart}})
+    duration = Enum.random(1..1800) |> Timex.Duration.from_seconds()
+    send(pid, {MockTravelTime, ref, {:ok, duration}})
 
     assert_receive {:timers, [timer]}
-    assert timer.time == travel_depart |> DateTime.add(-pre_travel, :second)
+
+    assert timer.time ==
+             event.start_time
+             |> DateTime.add(-post_travel, :second)
+             |> Timex.subtract(duration)
+             |> DateTime.add(-pre_travel, :second)
+             |> DateTime.truncate(:second)
   end
 
   defp start_timer_manager do
@@ -247,10 +171,12 @@ defmodule TayCalendar.SchedulerTest do
     {:ok, _pid} = start_supervised({MockTravelTime, pid: me}, restart: :temporary)
   end
 
-  defp start_scheduler(params \\ []) do
+  defp start_scheduler(params) do
     config =
       [
         goth: {:mock, self()},
+        calendar_ids: [Factory.generate_calendar_id()],
+        travel_time: nil,
         timer_manager: nil
       ]
       |> Keyword.merge(params)

@@ -22,14 +22,19 @@ defmodule TayCalendar.Scheduler do
       after: "off"
     }
 
-    @enforce_keys [:goth, :timer_manager]
+    @enforce_keys [:goth, :timer_manager, :travel_time, :calendar_ids]
     defstruct(
+      # Name/PID of Goth process:
       goth: nil,
+      # Name/PID of TimerManager process:
       timer_manager: nil,
-      garage: nil,
+      # Name/PID of TravelTime process:
       travel_time: nil,
-      calendars_interval: 3600_000,
+      # List of Google Calendar IDs to process each run:
+      calendar_ids: nil,
+      # How often to process events:
       events_interval: 300_000,
+      # Default behavioural properties for events:
       event_defaults: %{}
     )
 
@@ -76,33 +81,8 @@ defmodule TayCalendar.Scheduler do
   @impl true
   def init(%Config{} = config) do
     state = %State{config: config}
-    send(self(), :refresh_calendars)
     send(self(), :refresh_events)
     {:ok, state}
-  end
-
-  @impl true
-  def handle_info(:refresh_calendars, state) do
-    Logger.info("Refreshing calendars ...")
-
-    case Google.Calendar.list(state.config.goth) do
-      {:ok, cals} ->
-        state = state |> update_calendars(cals)
-        Process.send_after(self(), :refresh_calendars, state.config.calendars_interval)
-        {:noreply, state}
-
-      {:error, err} ->
-        Logger.warning("Failed to fetch calendar list: #{inspect(err)}")
-        Process.send_after(self(), :refresh_calendars, @error_interval)
-        {:noreply, state}
-    end
-  end
-
-  @impl true
-  def handle_info(:refresh_events, %State{calendars: nil} = state) do
-    Logger.warning("No calendar list yet, cannot fetch events.")
-    Process.send_after(self(), :refresh_events, @error_interval)
-    {:noreply, state}
   end
 
   @impl true
@@ -120,14 +100,14 @@ defmodule TayCalendar.Scheduler do
       orderBy: :startTime
     ]
 
-    state.calendars
-    |> Enum.reduce_while([], fn cal, acc ->
-      case Google.Event.list(state.config.goth, cal.id, opts) do
+    state.config.calendar_ids
+    |> Enum.reduce_while([], fn cal_id, acc ->
+      case Google.Event.list(state.config.goth, cal_id, opts) do
         {:ok, events} ->
           {:cont, events ++ acc}
 
         {:error, err} ->
-          Logger.warning("Failed to fetch events for #{inspect(cal.name)}: #{inspect(err)}")
+          Logger.warning("Failed to fetch events for #{inspect(cal_id)}: #{inspect(err)}")
           {:halt, :error}
       end
     end)
@@ -142,18 +122,6 @@ defmodule TayCalendar.Scheduler do
         Process.send_after(self(), :refresh_events, @error_interval)
         {:noreply, state}
     end)
-  end
-
-  defp update_calendars(state, calendars) do
-    calendars = calendars |> Enum.sort_by(& &1.id)
-
-    if calendars == state.calendars do
-      Logger.info("Calendars are unchanged.")
-      state
-    else
-      Logger.info("Using calendars: " <> describe_calendars(calendars))
-      %State{state | calendars: calendars}
-    end
   end
 
   defp update_events(events, state) do
@@ -242,12 +210,7 @@ defmodule TayCalendar.Scheduler do
     offset_fun = fn term, time ->
       case term do
         "travel" ->
-          get_departure_time(
-            state.config.travel_time,
-            state.config.garage,
-            event.location,
-            time
-          )
+          get_departure_time(state.config.travel_time, event, time)
 
         _ ->
           with {:ok, secs} <- parse_interval(term) do
@@ -261,16 +224,10 @@ defmodule TayCalendar.Scheduler do
     end
   end
 
-  defp get_departure_time(_, nil, _, _) do
-    {:error, "Garage not set, travel time not available."}
-  end
-
-  defp get_departure_time(_, _, nil, _) do
-    {:error, "Event location not set, travel time not available."}
-  end
-
-  defp get_departure_time(pid, garage, destination, time) do
-    TravelTime.get(pid, garage, destination, time)
+  defp get_departure_time(pid, event, time) do
+    with {:ok, duration} <- TravelTime.get(pid, event) do
+      {:ok, Timex.subtract(time, duration) |> DateTime.truncate(:second)}
+    end
   end
 
   defp generate_after_timer(%{after: nil}, _, _), do: :disabled
@@ -309,16 +266,6 @@ defmodule TayCalendar.Scheduler do
         Logger.warning("Error parsing #{inspect(str)} as interval: #{msg} at #{inspect(rest)}")
         {:error, :bad_interval}
     end
-  end
-
-  defp describe_calendars([]), do: "(no calendars)"
-
-  defp describe_calendars(calendars) do
-    calendars
-    |> Enum.map(fn cal ->
-      "\n  - #{cal.name}: #{cal.description}"
-    end)
-    |> Enum.join()
   end
 
   defp describe_timers([]), do: "(no timers)"
