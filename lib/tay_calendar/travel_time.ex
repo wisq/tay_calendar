@@ -139,7 +139,8 @@ defmodule TayCalendar.TravelTime do
       xfields =
         ical
         |> XFields.parse()
-        |> XFields.as_map()
+        |> XFields.most_recent_event()
+        |> XFields.xfields_as_map()
 
       case Map.fetch(xfields, "X-APPLE-TRAVEL-DURATION") do
         {:ok, %XFields.Property{value: value}} ->
