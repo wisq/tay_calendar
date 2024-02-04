@@ -9,7 +9,7 @@ defmodule TayCalendar.Test.DataFactory do
   def timer(attrs \\ []) do
     %Timer{
       id: Enum.random(1..5),
-      active?: random_boolean(),
+      enabled?: random_boolean(),
       depart_time: random_naive_minute(),
       repeating?: random_boolean(),
       climate?: random_boolean(),
@@ -50,7 +50,7 @@ defmodule TayCalendar.Test.DataFactory do
     %ChargingProfile{
       id: Enum.random(1..5),
       name: random_charging_profile_name(),
-      active: [true, false] |> Enum.random(),
+      enabled?: [true, false] |> Enum.random(),
       charging: charging_profile_options(options),
       position: charging_profile_position(position)
     }
@@ -60,7 +60,6 @@ defmodule TayCalendar.Test.DataFactory do
   def charging_profile_options(attrs \\ []) do
     %ChargingProfile.ChargingOptions{
       minimum_charge: Enum.random(0..40) |> round_to(5),
-      target_charge: 100,
       mode: [:smart, :preferred_time] |> Enum.random(),
       preferred_time_start: random_naive_minute() |> NaiveDateTime.to_time(),
       preferred_time_end: random_naive_minute() |> NaiveDateTime.to_time()

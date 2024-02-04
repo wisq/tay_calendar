@@ -35,7 +35,7 @@ defmodule TayCalendar.TimerManagerTest do
 
       assert %Timer{
                id: id,
-               active?: true,
+               enabled?: true,
                charge?: false,
                climate?: true,
                depart_time: depart_time,
@@ -78,7 +78,7 @@ defmodule TayCalendar.TimerManagerTest do
     refute_receive {Porsche, :put_timer, _, _, _}
 
     # Now change one of the existing timers:
-    changed_existing = existing |> List.update_at(0, fn t -> %Timer{t | active?: false} end)
+    changed_existing = existing |> List.update_at(0, fn t -> %Timer{t | enabled?: false} end)
 
     TimerManager.push(pid, pending)
     assert_receive {Porsche, :emobility, pid, ref, {@vin, @model}}

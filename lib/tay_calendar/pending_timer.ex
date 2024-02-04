@@ -20,13 +20,13 @@ defmodule TayCalendar.PendingTimer do
 
   def is_covered_by?(%PendingTimer{} = pending, %Timer{} = existing) do
     existing |> TimerUtils.will_occur_at?(pending.time |> to_existing_time()) &&
-      existing.active? && existing.climate?
+      existing.enabled? && existing.climate?
   end
 
   def to_existing(%PendingTimer{} = pending, id) do
     %Timer{
       id: id,
-      active?: true,
+      enabled?: true,
       depart_time: pending.time |> to_existing_time(),
       repeating?: false,
       charge?: false,
