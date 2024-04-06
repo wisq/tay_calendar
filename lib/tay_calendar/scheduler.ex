@@ -167,6 +167,9 @@ defmodule TayCalendar.Scheduler do
       "#TayCalAfter: " <> arg ->
         [{:after, arg}]
 
+      "#TayCalCharge: " <> arg ->
+        [{:charge, arg}]
+
       "#TayCal" <> _ = opt ->
         Logger.error("Unknown directive: #{inspect(opt)}")
         []
@@ -206,7 +209,7 @@ defmodule TayCalendar.Scheduler do
   defp generate_before_timer(%{before: nil}, _, _), do: :disabled
   defp generate_before_timer(%{before: "off"}, _, _), do: :disabled
 
-  defp generate_before_timer(%{before: margin}, event, state) do
+  defp generate_before_timer(%{before: margin} = params, event, state) do
     offset_fun = fn term, time ->
       case term do
         "travel" ->
@@ -220,13 +223,9 @@ defmodule TayCalendar.Scheduler do
     end
 
     with {:ok, time} <- event.start_time |> apply_offsets(margin, offset_fun) do
-      {:ok, %PendingTimer{time: time, event: event}}
-    end
-  end
-
-  defp get_departure_time(pid, event, time) do
-    with {:ok, duration} <- TravelTime.get(pid, event) do
-      {:ok, Timex.subtract(time, duration) |> DateTime.truncate(:second)}
+      {:ok,
+       %PendingTimer{time: time, event: event}
+       |> maybe_set_charge(params)}
     end
   end
 
@@ -244,6 +243,25 @@ defmodule TayCalendar.Scheduler do
       {:ok, %PendingTimer{time: time, event: event}}
     end
   end
+
+  defp get_departure_time(pid, event, time) do
+    with {:ok, duration} <- TravelTime.get(pid, event) do
+      {:ok, Timex.subtract(time, duration) |> DateTime.truncate(:second)}
+    end
+  end
+
+  defp maybe_set_charge(timer, %{charge: percent}) do
+    case Integer.parse(percent) do
+      {int, "%"} ->
+        %PendingTimer{timer | charge: int}
+
+      _ ->
+        Logger.error("Invalid charge percent: #{inspect(percent)}")
+        timer
+    end
+  end
+
+  defp maybe_set_charge(timer, %{}), do: timer
 
   defp apply_offsets(time, margin, offset_fun) do
     margin

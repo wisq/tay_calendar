@@ -120,6 +120,61 @@ defmodule TayCalendar.SchedulerTest do
     assert [%{time: ^timer1}, %{time: ^timer2}] = timers
   end
 
+  test "handles charging directive" do
+    {:ok, mock_tm} = start_timer_manager()
+
+    {:ok, _} =
+      start_scheduler(
+        timer_manager: mock_tm,
+        event_defaults: %{
+          before: "1m",
+          after: "1m"
+        }
+      )
+
+    event = Factory.event(description: "#TayCalCharge: 95%")
+
+    [timer1, timer2] =
+      [
+        event.start_time |> DateTime.add(-60, :second),
+        event.end_time |> DateTime.add(60, :second)
+      ]
+
+    assert_receive {Google, pid, ref, _}
+    send(pid, {Google, ref, {:ok, [event]}})
+
+    assert_receive {:timers, timers}
+    assert [%{time: ^timer1, charge: 95}, %{time: ^timer2}] = timers
+  end
+
+  test "handles charging default" do
+    {:ok, mock_tm} = start_timer_manager()
+
+    {:ok, _} =
+      start_scheduler(
+        timer_manager: mock_tm,
+        event_defaults: %{
+          before: "1m",
+          after: "1m",
+          charge: "50%"
+        }
+      )
+
+    event = Factory.event()
+
+    [timer1, timer2] =
+      [
+        event.start_time |> DateTime.add(-60, :second),
+        event.end_time |> DateTime.add(60, :second)
+      ]
+
+    assert_receive {Google, pid, ref, _}
+    send(pid, {Google, ref, {:ok, [event]}})
+
+    assert_receive {:timers, timers}
+    assert [%{time: ^timer1, charge: 50}, %{time: ^timer2}] = timers
+  end
+
   test "adds travel time to timers" do
     {:ok, mock_tm} = start_timer_manager()
     {:ok, mock_travel} = start_travel_time()

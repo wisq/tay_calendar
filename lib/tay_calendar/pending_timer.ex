@@ -4,7 +4,11 @@ defmodule TayCalendar.PendingTimer do
   alias TayCalendar.TimerUtils
 
   @enforce_keys [:time, :event]
-  defstruct(@enforce_keys)
+  defstruct(
+    time: nil,
+    event: nil,
+    charge: nil
+  )
 
   def unix_time(%PendingTimer{time: time}) do
     time |> DateTime.to_unix()
@@ -23,14 +27,15 @@ defmodule TayCalendar.PendingTimer do
       existing.enabled? && existing.climate?
   end
 
-  def to_existing(%PendingTimer{} = pending, id) do
+  def to_existing(%PendingTimer{} = timer, id) do
     %Timer{
       id: id,
       enabled?: true,
-      depart_time: pending.time |> to_existing_time(),
+      depart_time: timer.time |> to_existing_time(),
       repeating?: false,
-      charge?: false,
-      climate?: true
+      charge?: !is_nil(timer.charge),
+      climate?: true,
+      target_charge: timer.charge
     }
   end
 

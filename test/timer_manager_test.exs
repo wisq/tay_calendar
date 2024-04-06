@@ -20,8 +20,15 @@ defmodule TayCalendar.TimerManagerTest do
     event = EventFactory.event()
 
     timers = [
-      %PendingTimer{time: event.start_time |> DateTime.add(-123, :second), event: event},
-      %PendingTimer{time: event.end_time |> DateTime.add(123, :second), event: event}
+      %PendingTimer{
+        time: event.start_time |> DateTime.add(-123, :second),
+        event: event,
+        charge: 55
+      },
+      %PendingTimer{
+        time: event.end_time |> DateTime.add(123, :second),
+        event: event
+      }
     ]
 
     TimerManager.push(pid, timers)
@@ -36,9 +43,10 @@ defmodule TayCalendar.TimerManagerTest do
       assert %Timer{
                id: id,
                enabled?: true,
-               charge?: false,
+               charge?: charge_on,
                climate?: true,
                depart_time: depart_time,
+               target_charge: charge_percent,
                repeating?: false
              } = timer
 
@@ -46,6 +54,16 @@ defmodule TayCalendar.TimerManagerTest do
       expected_time = Enum.at(timers, index).time |> to_naive_seconds()
       actual_time = depart_time |> to_naive_seconds()
       assert_in_delta(expected_time, actual_time, 30)
+
+      case id do
+        1 ->
+          assert charge_on == true
+          assert charge_percent == 55
+
+        2 ->
+          assert charge_on == false
+          assert charge_percent == nil
+      end
 
       send(pid, {Porsche, ref, {:ok, true}})
     end)
