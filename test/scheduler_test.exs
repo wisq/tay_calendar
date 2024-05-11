@@ -214,6 +214,38 @@ defmodule TayCalendar.SchedulerTest do
              |> DateTime.truncate(:second)
   end
 
+  test "handles events with no travel time" do
+    {:ok, mock_tm} = start_timer_manager()
+    {:ok, mock_travel} = start_travel_time()
+
+    pre_travel = Enum.random(1..1800)
+    post_travel = Enum.random(1..1800)
+    before_str = to_interval(post_travel) <> " + travel + " <> to_interval(pre_travel)
+
+    {:ok, _} =
+      start_scheduler(
+        timer_manager: mock_tm,
+        travel_time: mock_travel,
+        event_defaults: %{before: before_str}
+      )
+
+    event = Factory.event(location: Factory.generate_location())
+
+    assert_receive {Google, pid, ref, _}
+    send(pid, {Google, ref, {:ok, [event]}})
+
+    assert_receive {MockTravelTime, pid, ref, _}
+    send(pid, {MockTravelTime, ref, {:ok, nil}})
+
+    assert_receive {:timers, [timer]}
+
+    assert timer.time ==
+             event.start_time
+             |> DateTime.add(-post_travel, :second)
+             |> DateTime.add(-pre_travel, :second)
+             |> DateTime.truncate(:second)
+  end
+
   defp start_timer_manager do
     me = self()
     on_push = fn timers -> send(me, {:timers, timers}) end

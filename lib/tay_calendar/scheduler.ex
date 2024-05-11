@@ -245,8 +245,12 @@ defmodule TayCalendar.Scheduler do
   end
 
   defp get_departure_time(pid, event, time) do
-    with {:ok, duration} <- TravelTime.get(pid, event) do
-      {:ok, Timex.subtract(time, duration) |> DateTime.truncate(:second)}
+    case TravelTime.get(pid, event) do
+      {:ok, nil} ->
+        {:ok, time}
+
+      {:ok, duration = %Timex.Duration{}} ->
+        {:ok, Timex.subtract(time, duration) |> DateTime.truncate(:second)}
     end
   end
 
