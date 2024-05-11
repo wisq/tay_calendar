@@ -2,7 +2,7 @@ import Config
 
 config :tay_calendar,
   event_defaults: %{
-    before: "5m + travel",
+    before: "travel",
     after: "10m"
   },
   off_peak_charger: %{
